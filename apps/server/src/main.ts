@@ -2,9 +2,20 @@ import { createApp } from "./app.js";
 import { config } from "./config.js";
 import { MemoryRepository, type Repository } from "./repository.js";
 import { MySqlRepository } from "./mysql-repository.js";
+import { initializeWithRetry } from "./startup-retry.js";
 
 const repository: Repository = config.storageDriver === "mysql" ? new MySqlRepository(config.db, config.autoMigrate) : new MemoryRepository();
-await repository.initialize(config.bootstrap);
+try {
+  await initializeWithRetry(
+    () => repository.initialize(config.bootstrap),
+    { onRetry: ({ attempt, delayMs, reason }) => console.warn(`[startup] repository_retry attempt=${attempt} delay_ms=${delayMs} reason=${reason}`) },
+  );
+} catch (error) {
+  try { await repository.close(); }
+  catch { console.warn("[startup] repository_close_failed"); }
+  throw error;
+}
+console.info(`[startup] repository=ready storage=${config.storageDriver}`);
 const app = await createApp(repository);
 
 const reaper = setInterval(async () => {

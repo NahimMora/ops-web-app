@@ -135,7 +135,7 @@ const migrations: Array<{ version: number; name: string; statements: string[] }>
 export async function runMigrations(pool: Pool): Promise<void> {
   const connection = await pool.getConnection();
   try {
-    const [lockRows] = await connection.query("SELECT GET_LOCK('holasalta_ops_migrations', 30) AS acquired");
+    const [lockRows] = await connection.query("SELECT GET_LOCK('holasalta_ops_migrations', 5) AS acquired");
     if (!(lockRows as Array<{ acquired: number }>)[0]?.acquired) throw new Error("Could not acquire migration lock");
     await connection.query(migrations[0]!.statements[0]!);
     const [rows] = await connection.query("SELECT version FROM schema_migrations");

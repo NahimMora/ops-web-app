@@ -4,6 +4,7 @@ function classifyStartupFailure(error) {
   if (message.includes("production requires ops_storage_driver=mysql")) return "CONFIG_STORAGE_DRIVER";
   if (message.includes("missing production variables")) return "CONFIG_REQUIRED_VARIABLES";
   if (message.includes("must be a production secret")) return "CONFIG_WEAK_SECRET";
+  if (error?.name === "ZodError") return "CONFIG_INVALID_VARIABLES";
   if (code === "ER_ACCESS_DENIED_ERROR") return "MYSQL_AUTH_FAILED";
   if (code === "ER_BAD_DB_ERROR") return "MYSQL_DATABASE_NOT_FOUND";
   if (code === "ER_DBACCESS_DENIED_ERROR") return "MYSQL_DATABASE_ACCESS_DENIED";
@@ -12,8 +13,10 @@ function classifyStartupFailure(error) {
   return "APPLICATION_STARTUP_FAILED";
 }
 
+console.info("[startup] entry=server.js");
 try {
   await import("./dist/server/main.js");
+  console.info("[startup] server=ready");
 } catch (error) {
   const failure = classifyStartupFailure(error);
   console.error(`[startup] fatal=${failure}. Revise Environment Variables y MySQL en hPanel.`);

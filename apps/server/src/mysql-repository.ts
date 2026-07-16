@@ -13,7 +13,7 @@ const iso = (value: unknown): string | null => value ? new Date(String(value).re
 export class MySqlRepository implements Repository {
   readonly pool: Pool;
   constructor(db: DbConfig, private readonly autoMigrate = true) {
-    this.pool = mysql.createPool({ ...db, connectionLimit: 8, waitForConnections: true, queueLimit: 50, enableKeepAlive: true, timezone: "Z", dateStrings: true, charset: "utf8mb4" });
+    this.pool = mysql.createPool({ ...db, connectTimeout: 5_000, connectionLimit: 8, waitForConnections: true, queueLimit: 50, enableKeepAlive: true, timezone: "Z", dateStrings: true, charset: "utf8mb4" });
   }
   async initialize(bootstrap: BootstrapInput): Promise<void> {
     if (this.autoMigrate) await runMigrations(this.pool);

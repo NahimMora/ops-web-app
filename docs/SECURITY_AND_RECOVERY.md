@@ -65,10 +65,11 @@ Después de guardar la contraseña inicial en un gestor, borrar el archivo tempo
 
 ### Cuenta admin comprometida
 
-1. Revocar todas las sesiones.
-2. Cambiar hash de contraseña por procedimiento administrativo.
-3. Rotar clave TOTP si corresponde.
-4. Revisar audit log y destinos externos.
+1. Ejecutar `npm run secrets:rotate-admin` en `D:\Ops`; el comando sólo modifica el hash admin en `.secrets\hostinger.env` y la contraseña en `.secrets\ADMIN_CREDENTIALS.txt`.
+2. En hPanel, reemplazar únicamente `OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH` con el nuevo valor local y usar Save and redeploy.
+3. El bootstrap sincroniza el hash dentro de una transacción, limpia el bloqueo y revoca las sesiones del admin cuando detecta el cambio.
+4. Ingresar con la nueva contraseña dejando 2FA vacío si aún no fue activado. Guardarla en un gestor y eliminar el archivo temporal.
+5. Rotar TOTP si ya estaba configurado y revisar audit log y destinos externos.
 
 ### Publicación incierta
 

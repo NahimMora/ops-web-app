@@ -65,6 +65,10 @@ export class MemoryRepository implements Repository {
   async initialize(bootstrap: BootstrapInput): Promise<void> {
     const existing = [...this.users.values()].find((u) => u.email === bootstrap.adminEmail);
     if (!existing) this.users.set("bootstrap-admin", { id: "bootstrap-admin", email: bootstrap.adminEmail, displayName: "Administrador", passwordHash: bootstrap.passwordHash, role: "admin", status: "active", failedLoginCount: 0, lockedUntil: null, lastLoginAt: null, totpSecretEncrypted: null, totpEnabled: false });
+    else if (existing.passwordHash !== bootstrap.passwordHash) {
+      existing.passwordHash = bootstrap.passwordHash; existing.failedLoginCount = 0; existing.lockedUntil = null;
+      await this.revokeUserSessions(existing.id);
+    }
     if (!this.agents.has(bootstrap.agentId)) this.agents.set(bootstrap.agentId, { id: bootstrap.agentId, name: bootstrap.agentName, tokenHash: bootstrap.agentTokenHash, status: "offline", version: null, capabilities: [], lastSeenAt: null, revokedAt: null });
   }
   async close(): Promise<void> {}

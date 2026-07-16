@@ -7,6 +7,18 @@ function input(id: string, key: string, resourceKey: string | null = null): Crea
 }
 
 describe("repository concurrency and retry safety", () => {
+  it("rotates the bootstrap password, clears lockout and revokes sessions", async () => {
+    const repository = new MemoryRepository(); await repository.initialize(bootstrap);
+    await repository.recordLoginResult("bootstrap-admin", false, new Date(Date.now() + 60_000).toISOString());
+    await repository.createSession({ id: "session", userId: "bootstrap-admin", tokenHash: "token", csrfTokenHash: "csrf", expiresAt: new Date(Date.now() + 60_000).toISOString(), revokedAt: null });
+
+    await repository.initialize({ ...bootstrap, passwordHash: "rotated" });
+
+    const user = await repository.getUser("bootstrap-admin");
+    expect(user).toMatchObject({ passwordHash: "rotated", failedLoginCount: 0, lockedUntil: null });
+    expect(await repository.getSession("token")).toBeNull();
+  });
+
   it("deduplicates the same command idempotency key", async () => {
     const repository = new MemoryRepository(); await repository.initialize(bootstrap);
     const first = await repository.createCommand(input("one", "stable-key"));

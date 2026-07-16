@@ -17,17 +17,32 @@ export class MySqlRepository implements Repository {
   }
   async initialize(bootstrap: BootstrapInput): Promise<void> {
     if (this.autoMigrate) await runMigrations(this.pool);
-    const userId = randomUUID();
-    await this.pool.query(
-      `INSERT INTO users (id,email,display_name,password_hash,role,status) VALUES (?,?,?,?, 'admin','active')
-       ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), password_hash=IF(password_hash='',VALUES(password_hash),password_hash)`,
-      [userId, bootstrap.adminEmail, "Administrador", bootstrap.passwordHash],
-    );
-    await this.pool.query(
-      `INSERT INTO agents (id,name,token_hash,status,capabilities_json) VALUES (?,?,?,'offline','[]')
-       ON DUPLICATE KEY UPDATE name=VALUES(name), token_hash=IF(token_hash='',VALUES(token_hash),token_hash)`,
-      [bootstrap.agentId, bootstrap.agentName, bootstrap.agentTokenHash],
-    );
+    const connection = await this.pool.getConnection();
+    try {
+      await connection.beginTransaction();
+      const [users] = await connection.query<DbRow[]>("SELECT id,password_hash FROM users WHERE email=? LIMIT 1 FOR UPDATE", [bootstrap.adminEmail]);
+      const existing = users[0];
+      const passwordChanged = Boolean(existing && String(existing.password_hash) !== bootstrap.passwordHash);
+      const userId = existing ? String(existing.id) : randomUUID();
+      await connection.query(
+        `INSERT INTO users (id,email,display_name,password_hash,role,status) VALUES (?,?,?,?, 'admin','active')
+         ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),
+         failed_login_count=IF(password_hash<>VALUES(password_hash),0,failed_login_count),
+         locked_until=IF(password_hash<>VALUES(password_hash),NULL,locked_until),
+         password_hash=VALUES(password_hash)`,
+        [userId, bootstrap.adminEmail, "Administrador", bootstrap.passwordHash],
+      );
+      if (passwordChanged) await connection.query("DELETE FROM sessions WHERE user_id=?", [userId]);
+      await connection.query(
+        `INSERT INTO agents (id,name,token_hash,status,capabilities_json) VALUES (?,?,?,'offline','[]')
+         ON DUPLICATE KEY UPDATE name=VALUES(name), token_hash=IF(token_hash='',VALUES(token_hash),token_hash)`,
+        [bootstrap.agentId, bootstrap.agentName, bootstrap.agentTokenHash],
+      );
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally { connection.release(); }
   }
   async close() { await this.pool.end(); }
 

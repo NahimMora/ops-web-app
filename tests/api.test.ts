@@ -53,6 +53,45 @@ describe("HTTP API", () => {
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 204]);
   });
 
+  it("returns large dashboard, command and audit bodies without app-level compression", async () => {
+    const { repository, password } = await fixture();
+    await repository.createCommand({
+      id: "large-command",
+      type: "scraper.details",
+      payload: {
+        source: "tn",
+        urls: Array.from({ length: 80 }, (_, index) => `https://example.test/article-${index}`),
+      },
+      payloadHash: "large-hash",
+      idempotencyKey: "large-response-key",
+      priority: 0,
+      requiredCapability: "scraping",
+      resourceKey: null,
+      createdBy: "bootstrap-admin",
+      maxAttempts: 3,
+    });
+
+    const login = await app!.inject({
+      method: "POST",
+      url: "/api/auth/login",
+      payload: { email: "holasalta@acceso.com", password },
+    });
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const headers = { cookie, "accept-encoding": "gzip" };
+
+    for (const url of ["/api/dashboard", "/api/commands?limit=10", "/api/audit"]) {
+      const response = await app!.inject({ method: "GET", url, headers });
+      expect(response.statusCode).toBe(200);
+      expect(response.headers["content-encoding"]).toBeUndefined();
+      expect(response.body.length).toBeGreaterThan(0);
+      expect(() => response.json()).not.toThrow();
+    }
+
+    const commands = await app!.inject({ method: "GET", url: "/api/commands?limit=10", headers });
+    expect(commands.json().items).toHaveLength(1);
+    expect(commands.body.length).toBeGreaterThan(1_024);
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

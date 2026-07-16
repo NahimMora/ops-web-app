@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import compress from "@fastify/compress";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -23,14 +22,19 @@ const snapshotSchema = z.object({ key: z.string().min(1).max(190), revision: z.n
 export async function createApp(repository: Repository) {
   const app = Fastify({ logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie", "body.password", "body.leaseToken"] }, bodyLimit: 5 * 1024 * 1024, trustProxy: true, requestIdHeader: "x-request-id", genReqId: () => randomUUID() });
   await app.register(cookie);
-  await app.register(compress, { global: true });
   await app.register(rateLimit, { global: false, max: 100, timeWindow: "1 minute" });
   await app.register(helmet, {
     global: true,
     contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], scriptSrc: ["'self'"], styleSrc: ["'self'", "'unsafe-inline'"], imgSrc: ["'self'", "data:", "https://holasaltamedia.cc"], connectSrc: ["'self'"], frameAncestors: ["'none'"] } },
     referrerPolicy: { policy: "no-referrer" },
   });
-  app.addHook("onSend", async (_request, reply) => { reply.header("Cache-Control", "no-store"); });
+  // Hostinger/LiteSpeed owns transport compression. Compressing again inside
+  // Fastify makes larger dynamic responses arrive with an empty body through
+  // the Node wrapper, even though the route completed with HTTP 200.
+  app.addHook("onSend", async (_request, reply, payload) => {
+    reply.header("Cache-Control", "no-store");
+    return payload;
+  });
   const auth = new AuthService(repository);
 
   app.get("/health", async () => ({ status: "healthy", service: "holasalta-ops", version: "1.0.0", storage: config.storageDriver }));

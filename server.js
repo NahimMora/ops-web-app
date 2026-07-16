@@ -18,6 +18,11 @@ if (process.env.DB_HOST === "localhost" || process.env.DB_HOST === "::1") {
   process.env.DB_HOST = "127.0.0.1";
 }
 
+if (typeof process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH === "string") {
+  process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH =
+    process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH.replaceAll("\\$", "$");
+}
+
 console.info("[startup] entry=server.js");
 import("./dist/server/main.js")
   .then(() => {

@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
+  "main": "server.mjs",
   "engines": {
     "node": ">=22 <23"
   },
@@ -17,7 +18,7 @@
     "build:agent": "npm run bundle:agent",
     "build:web": "npm run bundle:web",
     "build": "npm run build:server",
-    "start": "node dist/server/main.js",
+    "start": "node server.mjs",
     "start:agent": "node dist/agent/main.js",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",

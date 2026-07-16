@@ -27,8 +27,8 @@ export class MySqlRepository implements Repository {
       await connection.query(
         `INSERT INTO users (id,email,display_name,password_hash,role,status) VALUES (?,?,?,?, 'admin','active')
          ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),
-         failed_login_count=IF(password_hash<>VALUES(password_hash),0,failed_login_count),
-         locked_until=IF(password_hash<>VALUES(password_hash),NULL,locked_until),
+         failed_login_count=0,
+         locked_until=NULL,
          password_hash=VALUES(password_hash)`,
         [userId, bootstrap.adminEmail, "Administrador", bootstrap.passwordHash],
       );

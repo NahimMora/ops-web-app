@@ -6,7 +6,7 @@ const envSchema = z.object({
   OPS_APP_URL: z.string().url().default("http://localhost:3000"),
   OPS_STORAGE_DRIVER: z.enum(["memory", "mysql"]).default("memory"),
   OPS_DB_AUTO_MIGRATE: z.string().default("true"),
-  DB_HOST: z.string().default("localhost"),
+  DB_HOST: z.string().default("127.0.0.1"),
   DB_PORT: z.coerce.number().int().default(3306),
   DB_USER: z.string().default(""),
   DB_PASSWORD: z.string().default(""),
@@ -32,6 +32,9 @@ if (raw.NODE_ENV === "production") {
   if (missing.length) throw new Error(`Missing production variables: ${missing.join(", ")}`);
   for (const [name, value] of [["OPS_SESSION_SECRET", raw.OPS_SESSION_SECRET], ["OPS_TOKEN_PEPPER", raw.OPS_TOKEN_PEPPER], ["OPS_TOTP_ENCRYPTION_KEY", raw.OPS_TOTP_ENCRYPTION_KEY]] as const) {
     if (value.length < 32 || value.includes("development-")) throw new Error(`${name} must be a production secret of at least 32 characters`);
+  }
+  if (!/^scrypt\$32768\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}$/.test(raw.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH)) {
+    throw new Error("Invalid bootstrap admin password hash format");
   }
 }
 

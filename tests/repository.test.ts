@@ -10,6 +10,8 @@ describe("repository concurrency and retry safety", () => {
   it("rotates the bootstrap password, clears lockout and revokes sessions", async () => {
     const repository = new MemoryRepository(); await repository.initialize(bootstrap);
     await repository.recordLoginResult("bootstrap-admin", false, new Date(Date.now() + 60_000).toISOString());
+    await repository.initialize(bootstrap);
+    expect(await repository.getUser("bootstrap-admin")).toMatchObject({ failedLoginCount: 0, lockedUntil: null });
     await repository.createSession({ id: "session", userId: "bootstrap-admin", tokenHash: "token", csrfTokenHash: "csrf", expiresAt: new Date(Date.now() + 60_000).toISOString(), revokedAt: null });
 
     await repository.initialize({ ...bootstrap, passwordHash: "rotated" });

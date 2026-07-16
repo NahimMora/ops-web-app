@@ -16,9 +16,9 @@ No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_
 
 1. hPanel → Websites → administrar el sitio/plan → Databases → Management.
 2. Crear una base, por ejemplo `ops`, y un usuario exclusivo con contraseña aleatoria.
-3. Copiar exactamente host, puerto, nombre completo, usuario completo y password mostrados por hPanel.
+3. Usar `DB_HOST=127.0.0.1` y `DB_PORT=3306`. En este runtime, `localhost` resuelve a `::1` y puede producir `ER_ACCESS_DENIED_ERROR` aunque el usuario esté autorizado para IPv4.
 4. Editar localmente `D:\Ops\.secrets\hostinger.env` y reemplazar:
-   - `DB_HOST` si hPanel muestra otro host.
+   - confirmar `DB_HOST=127.0.0.1`;
    - `DB_USER`.
    - `DB_PASSWORD`.
    - `DB_NAME`.
@@ -31,8 +31,8 @@ No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_
 3. Rama: `main`.
 4. Framework: Fastify; si no se detecta, elegir `Other`.
 5. Node.js: `22.x`.
-6. Build command: dejar el valor detectado por Fastify (`npm run build:server`). El script genera servidor, agente y web.
-7. Hostinger detecta Fastify y ejecuta el `server.js` de la raíz; ese archivo carga `dist/server/main.js` y reporta fallos de arranque sin exponer secretos.
+6. Build command: dejar el valor detectado por Fastify (`npm run build:server`). El script genera servidor, agente y web y ejecuta `check:hostinger`.
+7. Hostinger/LiteSpeed carga el `server.js` ESM de la raíz mediante `require()`. Por eso el entrypoint usa `import()` basado en promesas, sin top-level await, para cargar `dist/server/main.js`.
 8. Si solicita start command: `npm start`.
 9. Si se usa el framework `Other`, configurar Entry file `server.js` y Output directory `dist`.
 10. Importar variables desde el contenido ya corregido de `.secrets\hostinger.env`.
@@ -45,7 +45,7 @@ Antes de conectar el dominio:
 
 1. Abrir la URL temporal `/health`.
 2. Debe responder JSON con `status=healthy`, `storage=mysql` y versión `1.0.0`.
-3. Revisar Runtime Logs: deben aparecer `[startup] entry=server.js`, `repository=ready` y `server=ready`, nunca valores de variables.
+3. Revisar Runtime Logs: deben aparecer `[startup] entry=server.js`, `repository=ready` y `server=ready`, nunca `ERR_REQUIRE_ASYNC_MODULE` ni valores de variables.
 4. Abrir la URL temporal. Debe mostrar login, no un listado de archivos.
 5. Si falla MySQL, el log muestra un código seguro (`MYSQL_AUTH_FAILED`, `MYSQL_DATABASE_NOT_FOUND`, `MYSQL_DATABASE_ACCESS_DENIED` o `MYSQL_UNREACHABLE`). Corregir `DB_*` en Environment Variables y usar Save and redeploy.
 

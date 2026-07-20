@@ -29,7 +29,7 @@ export const commandPayloadSchemas = {
   "scraper.details": z.object({ source: scraperSourceSchema, urls: z.array(z.string().url()).min(1).max(100) }).strict(),
   "scraper.all.titles": z.object({ maxArticlesPerSource: z.number().int().min(1).max(50).default(10) }).strict(),
   "scraper.all.details": z.object({ items: z.array(z.object({ source: z.string().min(1).max(50), url: z.string().url() })).min(1).max(300) }).strict(),
-  "news.load_wordpress": z.object({ perPage: z.number().int().min(1).max(100).default(20) }).strict(),
+  "news.load_wordpress": z.object({ perPage: z.number().int().min(1).max(50).default(20) }).strict(),
   "news.save": z.object({ items: z.array(jsonObject).max(1000) }).strict(),
   "news.clear_cache": z.object({}).strict(),
   "news.publish": z.object({

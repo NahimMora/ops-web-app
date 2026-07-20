@@ -24,6 +24,7 @@ describe("command contracts and crash policy", () => {
       whatsappGroupSet: null,
       instagramEmojis: true,
     }).success).toBe(false);
+    expect(commandPayloadSchemas["news.load_wordpress"].safeParse({ perPage: 51 }).success).toBe(false);
   });
 
   it("never auto-retries after an external side effect", () => {

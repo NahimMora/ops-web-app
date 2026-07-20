@@ -312,7 +312,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
     <div className="flow-page">
       <Card title="Noticias preparadas" eyebrow="Redacción y publicación" actions={<ViewToggle value={view} onChange={setView} />}>
         <div className="news-actions">
-          <button onClick={() => void run("news.load_wordpress", { perPage: 50 })}>Traer de WordPress</button>
+          <button onClick={() => void run("news.load_wordpress", { perPage: 20 })}>Traer de WordPress</button>
           <button onClick={() => void run("news.save", { items: draft })}>Guardar cambios</button>
           <button className="danger-ghost" onClick={() => confirmed("¿Vaciar las noticias preparadas?") && void run("news.clear_cache", {})}>Vaciar noticias</button>
           <button className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void run("publish.clear", {})}>Limpiar historial</button>

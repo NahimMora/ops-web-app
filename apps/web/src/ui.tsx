@@ -288,7 +288,7 @@ export function ArticleList({
               <span>{checked ? "✓" : ""}</span>
             </button>
             <div className="article-media">
-              {image ? <img src={image} alt="" loading="lazy" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="media-fallback">{sourceLabel(item.source).slice(0, 2).toUpperCase()}</div>}
+              {image ? <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="media-fallback">{sourceLabel(item.source).slice(0, 2).toUpperCase()}</div>}
             </div>
             <div className="article-copy">
               <div className="article-meta"><span>{sourceLabel(item.source)}</span><time>{articleAge(item)}</time></div>

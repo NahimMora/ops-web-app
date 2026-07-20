@@ -13,7 +13,7 @@ const sources: Array<{ key: string; path: string; timeout: number; refreshMs: nu
   { key: "xvideo.jobs", path: "/api/x-video/jobs?limit=100", timeout: 15_000, refreshMs: 30_000 },
   { key: "whatsapp.groups", path: "/api/whatsapp/groups", timeout: 15_000, refreshMs: 2 * 60_000 },
   { key: "whatsapp.group_sets", path: "/api/whatsapp/group-sets", timeout: 15_000, refreshMs: 2 * 60_000 },
-  { key: "wordpress.posts", path: "/api/wordpress/posts?per_page=50", timeout: 30_000, refreshMs: TEN_MINUTES },
+  { key: "wordpress.posts", path: "/api/wordpress/posts?per_page=20", timeout: 30_000, refreshMs: TEN_MINUTES },
 ];
 const hashes = new Map<string, string>(); let revision = 0;
 const startedAt = Date.now();

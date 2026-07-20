@@ -27,7 +27,12 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
     case "scraper.details": return ok(await api.post(`${scraperRoutes[p.source]}/details`, { urls: p.urls }, 20 * 60_000));
     case "scraper.all.titles": return ok(await api.post("/api/scraper-all/titles", { max_articles_per_source: p.maxArticlesPerSource }, 10 * 60_000));
     case "scraper.all.details": return ok(await api.post("/api/scraper-all/details", { items: p.items }, 30 * 60_000));
-    case "news.load_wordpress": return ok(await api.post(`/api/news/load-from-wordpress?per_page=${Number(p.perPage)}`, {}, 5 * 60_000));
+    case "news.load_wordpress": {
+      await context.progress("wordpress_fetching", 10);
+      const result = await api.post(`/api/news/load-from-wordpress?per_page=${Number(p.perPage)}`, {}, 45_000);
+      await context.progress("wordpress_imported", 90);
+      return ok(result);
+    }
     case "news.save": return ok(await api.post("/api/news/save", p.items, 5 * 60_000));
     case "news.clear_cache": return ok(await api.delete("/api/news/clear-cache"));
     case "publish.clear": return ok(await api.post("/api/publish/jobs/clear"));

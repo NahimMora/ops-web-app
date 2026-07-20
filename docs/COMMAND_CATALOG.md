@@ -11,7 +11,7 @@ Todos los comandos se validan en web y servidor, llevan idempotency key y se eje
 | `scraper.details` | artículos de URLs validadas | 20 min | sí, hasta 3 |
 | `scraper.all.titles` | titulares de todas | 10 min | sí, hasta 3 |
 | `scraper.all.details` | detalles multi-fuente | 30 min | sí, hasta 3 |
-| `news.load_wordpress` | carga WordPress | 5 min | sí |
+| `news.load_wordpress` | carga WordPress | 45 s | sí |
 | `news.save` | guarda edición local | 5 min | sí, revisar atomicidad local |
 | `news.clear_cache` | limpia noticias | 2 min | sí |
 | `publish.clear` | limpia historial local | 2 min | sí |

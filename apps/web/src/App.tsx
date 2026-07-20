@@ -29,6 +29,7 @@ import {
   TechnicalDetails,
   commandLabel,
   shortDate,
+  statusLabel,
   type ContentItem,
   type RunCommand,
 } from "./ui";
@@ -67,14 +68,17 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!user) return;
     try {
-      const [nextDashboard, nextCommands] = await Promise.all([getDashboard(), getCommands()]);
+      const [nextDashboard, nextHistory] = await Promise.all([
+        getDashboard(),
+        tab === "commands" ? getCommands() : Promise.resolve(null),
+      ]);
       setDashboard(nextDashboard);
-      setCommands(nextCommands.items);
+      setCommands(nextHistory?.items ?? nextDashboard.commands ?? []);
       setError("");
     } catch (cause) {
       setError(message(cause));
     }
-  }, [user]);
+  }, [tab, user]);
 
   useEffect(() => {
     bootstrapAuth().then(setUser).catch(() => undefined).finally(() => setChecking(false));
@@ -83,17 +87,20 @@ export function App() {
   useEffect(() => {
     if (!user) return;
     void refresh();
-    const timer = window.setInterval(refresh, 5000);
+    const pollMs = (dashboard?.counts?.active ?? 0) > 0 ? 2000 : 10000;
+    const timer = window.setInterval(refresh, pollMs);
     return () => window.clearInterval(timer);
-  }, [user, refresh]);
+  }, [dashboard?.counts?.active, user, refresh]);
 
   const run: RunCommand = async (type, payload, success = "Comando encolado") => {
     try {
       const result = await createCommand(type, payload);
       setNotice(success);
       setError("");
-      await refresh();
-      return result.command as CommandRecord;
+      const command = result.command as CommandRecord;
+      setCommands((current) => [command, ...current.filter((item) => item.id !== command.id)]);
+      void refresh();
+      return command;
     } catch (cause) {
       setError(message(cause));
       return null;
@@ -248,6 +255,8 @@ function Automation({ snapshots, run }: { snapshots: Record<string, any>; run: R
   const pending = normalizeItems(pendingPayload?.pending ?? pendingPayload);
   const platforms = status?.platforms ?? {};
   const queues = { whatsapp: status?.wpp_queues ?? {}, x: status?.x_queues ?? {} };
+  const runtimeStatus = String(status?.status ?? "unknown");
+  const runtimeRunning = ["running", "healthy"].includes(runtimeStatus);
 
   return (
     <div className="flow-page">
@@ -263,7 +272,18 @@ function Automation({ snapshots, run }: { snapshots: Record<string, any>; run: R
             </>
           }
         >
-          <ReadableData value={status} empty="La PC todavía no sincronizó el estado." />
+          <div className={`runtime-callout ${runtimeRunning ? "good" : "warn"}`}>
+            <strong>{runtimeRunning ? "Automatización en ejecución" : "Automatización detenida"}</strong>
+            <span>{runtimeRunning ? "Los workers locales están disponibles para WhatsApp y X." : "El agente sigue conectado, pero los workers de navegador no están iniciados. Use Iniciar para habilitar WhatsApp y X."}</span>
+          </div>
+          <div className="data-grid runtime-grid">
+            <div className="data-row"><span>Estado</span><strong>{runtimeRunning ? "En ejecución" : runtimeStatus === "stopped" ? "Detenido" : statusLabel(runtimeStatus)}</strong></div>
+            <div className="data-row"><span>Modo</span><strong>{status?.mode === "local" ? "En esta PC" : String(status?.mode ?? "—")}</strong></div>
+            <div className="data-row"><span>Runtime iniciado</span><strong>{status?.runtime_started ? "Sí" : "No"}</strong></div>
+            <div className="data-row"><span>Última señal</span><strong>{shortDate(status?.runtime_heartbeat)}</strong></div>
+            <div className="data-row"><span>Estado actualizado</span><strong>{shortDate(status?.updated_at)}</strong></div>
+            <div className="data-row"><span>Eventos recientes</span><strong>{Array.isArray(status?.recent_events) ? status.recent_events.length : 0}</strong></div>
+          </div>
           <TechnicalDetails value={status} label="Ver diagnóstico técnico del runtime" />
         </Card>
         <Card title="Sesiones y colas" eyebrow="Plataformas">
@@ -336,7 +356,7 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
   const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
   const jobs = normalizeItems(snapshots["xvideo.jobs"]?.payload);
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
-  const selectedGroups = groups.filter((group) => selectedGroupIds.includes(String(group.id)));
+  const selectedGroups = selectedGroupSet ? normalizeGroups(selectedGroupSet) : groups.filter((group) => selectedGroupIds.includes(String(group.id)));
   const exports = commands.filter((command) => command.type === "xvideo.export_r2" && command.status === "completed" && command.result);
 
   async function createSingle() {

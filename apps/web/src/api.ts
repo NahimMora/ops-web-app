@@ -26,14 +26,13 @@ export const enableTotp = (code: string) => request("/api/auth/totp/enable", { m
 
 export function createCommand(type: CommandType, payload: Record<string, unknown>, priority = 0): Promise<any> {
   const signature = `${type}:${JSON.stringify(payload)}`; const existing = inflight.get(signature); if (existing) return existing;
-  // The ten-minute bucket survives a fast response/re-click and a page reload without blocking a legitimate future rerun.
   const promise = commandKey(type, signature).then((key) => request("/api/commands", { method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ type, payload, priority }) })).finally(() => inflight.delete(signature));
   inflight.set(signature, promise); return promise;
 }
 
 async function commandKey(type: CommandType, signature: string): Promise<string> {
-  const bucket = Math.floor(Date.now() / 600_000);
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${bucket}:${signature}`));
+  const nonce = crypto.randomUUID();
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${nonce}:${signature}`));
   const hash = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${type}:${bucket}:${hash}`;
+  return `${type}:${hash}`;
 }

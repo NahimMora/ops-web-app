@@ -1,3 +1,4 @@
+import type { CommandType } from "../../../packages/contracts/src/index.js";
 import { agentConfig, capabilities } from "./config.js";
 import { executeCommand } from "./executors.js";
 import { LocalApi, LocalApiError } from "./local-api.js";
@@ -24,17 +25,37 @@ async function processLoop() {
           sideEffect: async () => { if (!sideEffect) { await ops.sideEffect(command.id, leaseToken); sideEffect = true; } },
           refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
         });
+        const refreshKeys = snapshotKeysAfter(command.type);
+        if (refreshKeys.length) {
+          await syncSnapshots(local, ops, refreshKeys, async (key, current, total) => {
+            stage = `syncing:${key}`;
+            progress = Math.min(99, 92 + Math.round((current / total) * 7));
+            await ops.commandHeartbeat(command.id, leaseToken, stage, progress, result.localJobId ?? localJobId);
+          }, true);
+        }
         await ops.complete(command.id, leaseToken, result.status, result.result, result.localJobId ?? localJobId);
         console.log(`[agent] completed ${command.id} (${result.status})`);
-        if (command.type !== "snapshot.refresh") {
-          void syncSnapshots(local, ops).catch((error) => console.error(`[agent] post-command snapshot sync failed: ${safeError(error)}`));
-        }
       } catch (error) {
         const message = safeError(error); const retryable = !sideEffect && (!(error instanceof LocalApiError) || error.status >= 500 || error.status === 429); const status = sideEffect ? "requires_attention" : "failed";
         await ops.fail(command.id, leaseToken, status, sideEffect ? "external_result_unknown" : "execution_failed", message, retryable, localJobId).catch((reportError) => console.error(`[agent] could not report failure for ${command.id}: ${safeError(reportError)}`)); console.error(`[agent] failed ${command.id}: ${message}`);
       } finally { clearInterval(leaseTimer); active = false; }
     } catch (error) { active = false; console.error(`[agent] polling error: ${safeError(error)}`); await delay(10_000); }
   }
+}
+
+function snapshotKeysAfter(type: CommandType): string[] {
+  if (type === "news.load_wordpress") return ["news.current", "wordpress.posts"];
+  if (["news.save", "news.clear_cache"].includes(type)) return ["news.current"];
+  if (type === "news.publish") return ["news.current", "wordpress.posts", "automation.jobs", "instagram.pending"];
+  if (type === "publish.clear") return ["automation.jobs"];
+  if (type === "wordpress.share") return ["automation.jobs", "instagram.pending"];
+  if (type === "whatsapp.groups.extract") return ["whatsapp.groups"];
+  if (type === "whatsapp.group_set.save") return ["whatsapp.group_sets"];
+  if (["automation.start", "automation.stop", "automation.restart"].includes(type)) return ["automation.status", "automation.jobs"];
+  if (["automation.job.cancel", "automation.jobs.clear"].includes(type)) return ["automation.jobs"];
+  if (type.startsWith("instagram.")) return ["instagram.pending", "automation.jobs"];
+  if (type.startsWith("xvideo.")) return ["xvideo.jobs", "automation.jobs"];
+  return [];
 }
 
 function safeError(error: unknown): string { return (error instanceof Error ? error.message : String(error)).replace(/(Bearer|token|secret|password)[^\s,;]*/gi, "$1=[REDACTED]").slice(0, 1000); }

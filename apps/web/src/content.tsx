@@ -73,7 +73,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   const processedRows = useMemo(() => processed.map((item, index) => ({ item, index })), [processed]);
   const selectedItems = selectedProcessed.map((index) => processed[index]).filter(Boolean);
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
-  const selectedGroups = groups.filter((group) => selectedGroupIds.includes(String(group.id)));
+  const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
 
   useEffect(() => {
     localStorage.setItem("ops:scrapers:view", view);
@@ -190,9 +190,13 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
       <Card
         title="2. Preparar y editar"
         eyebrow="Procesamiento local"
-        actions={<button className="primary" disabled={!selectedTitles.length || processBusy || searchBusy} onClick={() => void handlePrepare()}>{processBusy ? "Procesando…" : `Preparar ${selectedTitles.length || ""}`}</button>}
+        actions={<button className="primary" disabled={!selectedTitles.length || processBusy || searchBusy} onClick={() => void handlePrepare()}>{processBusy ? "Preparando artículos…" : `Preparar ${selectedTitles.length || ""} seleccionados`}</button>}
       >
         <p className="card-intro">La PC descarga el contenido y las imágenes únicamente de los titulares seleccionados. Al terminar, podés corregir título y extracto en esta misma pantalla.</p>
+        <div className={`stage-status ${processBusy ? "working" : processed.length ? "ready" : "waiting"}`}>
+          <strong>{processBusy ? "Preparando el contenido completo" : processed.length ? `${processed.length} artículos listos para publicar` : selectedTitles.length ? `${selectedTitles.length} titulares pendientes de preparar` : "Todavía no hay titulares para preparar"}</strong>
+          <span>{processBusy ? "Se están descargando los párrafos y las imágenes. La selección quedará lista automáticamente." : processed.length ? "Ya puede editar todos los párrafos o continuar a Publicar; todos quedaron seleccionados." : selectedTitles.length ? "Presione Preparar seleccionados para descargar cada artículo." : "Busque titulares y seleccione los que quiera procesar."}</span>
+        </div>
         <Progress command={detailCommand} />
         {processed.length > 0 && (
           <SelectionBar
@@ -266,6 +270,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
   const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
   const [publishCommandId, setPublishCommandId] = useState("");
+  const [operationCommandId, setOperationCommandId] = useState("");
   const initialized = useRef("");
 
   useEffect(() => {
@@ -291,8 +296,14 @@ export function News({ commands, snapshots, run }: ContentProps) {
   }, [draft, onlyImages, search, source]);
   const selectedItems = selected.map((index) => draft[index]).filter(Boolean);
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
-  const selectedGroups = groups.filter((group) => selectedGroupIds.includes(String(group.id)));
+  const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
   const publishCommand = commands.find((command) => command.id === publishCommandId);
+  const operationCommand = commands.find((command) => command.id === operationCommandId);
+
+  async function runNewsOperation(type: "news.load_wordpress" | "news.save" | "news.clear_cache" | "publish.clear", payload: Record<string, unknown>, notice: string) {
+    const command = await run(type, payload, notice);
+    if (command) setOperationCommandId(command.id);
+  }
 
   async function handlePublish() {
     if (!selectedItems.length || !platforms.length) return;
@@ -312,11 +323,13 @@ export function News({ commands, snapshots, run }: ContentProps) {
     <div className="flow-page">
       <Card title="Noticias preparadas" eyebrow="Redacción y publicación" actions={<ViewToggle value={view} onChange={setView} />}>
         <div className="news-actions">
-          <button onClick={() => void run("news.load_wordpress", { perPage: 20 })}>Traer de WordPress</button>
-          <button onClick={() => void run("news.save", { items: draft })}>Guardar cambios</button>
-          <button className="danger-ghost" onClick={() => confirmed("¿Vaciar las noticias preparadas?") && void run("news.clear_cache", {})}>Vaciar noticias</button>
-          <button className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void run("publish.clear", {})}>Limpiar historial</button>
+          <button disabled={isActive(operationCommand)} onClick={() => void runNewsOperation("news.load_wordpress", { perPage: 100 }, "Importación de 100 noticias iniciada")}>Traer 100 de WordPress</button>
+          <button disabled={isActive(operationCommand)} onClick={() => void runNewsOperation("news.save", { items: draft }, "Guardado de noticias iniciado")}>Guardar cambios</button>
+          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Vaciar las noticias preparadas?") && void runNewsOperation("news.clear_cache", {}, "Vaciado de noticias iniciado")}>Vaciar noticias</button>
+          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void runNewsOperation("publish.clear", {}, "Limpieza de historial iniciada")}>Limpiar historial</button>
         </div>
+        <Progress command={operationCommand} />
+        {operationCommand && !isActive(operationCommand) && <ResultSummary command={operationCommand} />}
         <div className="filter-row">
           <Field label="Fuente">
             <select value={source} onChange={(event) => setSource(event.target.value)}>
@@ -340,7 +353,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
         />
       </Card>
 
-      <Card title="Destinos de publicación" eyebrow="WordPress y redes">
+      <Card title="Destinos de publicación" eyebrow="WordPress y redes" className="publication-controls">
         <PlatformChooser selected={platforms} onChange={setPlatforms} />
         {platforms.includes("whatsapp") && (
           <WhatsAppSelector
@@ -395,7 +408,21 @@ export function WhatsAppSelector({
   const sets = normalizeSets(snapshots["whatsapp.group_sets"]?.payload);
   const [filter, setFilter] = useState("");
   const [setName, setSetName] = useState("");
+  const defaultApplied = useRef(false);
   const visible = groups.filter((group) => String(group.nombre ?? "").toLocaleLowerCase("es").includes(filter.toLocaleLowerCase("es")));
+
+  useEffect(() => {
+    if (defaultApplied.current || !sets.length) return;
+    if (selectedSet || selectedIds.length) {
+      defaultApplied.current = true;
+      return;
+    }
+    const defaultSet = sets.find(isDefaultGroupSet);
+    if (!defaultSet) return;
+    defaultApplied.current = true;
+    onSelectedSet(defaultSet);
+    onSelectedIds(normalizeGroups(defaultSet).map((group) => String(group.id)));
+  }, [onSelectedIds, onSelectedSet, selectedIds.length, selectedSet, sets]);
 
   function chooseSet(id: string) {
     const set = sets.find((item) => String(item.id) === id) ?? null;
@@ -439,7 +466,7 @@ export function WhatsAppSelector({
 
 function WordPressArchive({ posts, platforms, groups, groupSet, run }: { posts: ContentItem[]; platforms: string[]; groups: ContentItem[]; groupSet: ContentItem | null; run: RunCommand }) {
   const [search, setSearch] = useState("");
-  const filtered = posts.filter((post) => articleTitle(post).toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es"))).slice(0, 30);
+  const filtered = posts.filter((post) => articleTitle(post).toLocaleLowerCase("es").includes(search.toLocaleLowerCase("es")));
   return (
     <Card title="Publicados en WordPress" eyebrow="Archivo reciente" actions={<span className="small-count">{posts.length} posts</span>}>
       <div className="filter-row"><Field label="Buscar en WordPress"><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar post…" /></Field></div>
@@ -498,6 +525,15 @@ function normalizeSets(payload: unknown): ContentItem[] {
   return [];
 }
 
+function isDefaultGroupSet(set: ContentItem) {
+  if (set.default === true || set.predeterminado === true) return true;
+  return /(^|[-_\s])(predeterminado|default)([-_\s]|$)/i.test(`${String(set.id ?? "")} ${String(set.nombre ?? "")}`);
+}
+
+function resolveSelectedGroups(groups: ContentItem[], selectedIds: string[], selectedSet: ContentItem | null) {
+  const setGroups = normalizeGroups(selectedSet);
+  return setGroups.length ? setGroups : groups.filter((group) => selectedIds.includes(String(group.id)));
+}
 function readView(key: string): ViewMode {
   return localStorage.getItem(key) === "compact" ? "compact" : "card";
 }

@@ -118,7 +118,7 @@ async function exportVideo(p: Record<string, any>, api: LocalApi, ctx: Execution
 
 async function poll(api: LocalApi, path: string, unwrap: (data: any) => any, terminals: string[], ctx: ExecutionContext, jobId: string, timeoutMs: number, extraDone?: (data: any) => boolean) {
   const start = Date.now(); let attempt = 0;
-  while (Date.now() - start < timeoutMs) { const value = unwrap(await api.get(path, 60_000)); const status = String(value?.status ?? ""); const percent = Number(value?.progress_percent ?? Math.min(95, 10 + attempt)); await ctx.progress(String(value?.current_stage ?? status ?? "processing"), Number.isFinite(percent) ? Math.min(95, percent) : 20, jobId); if (terminals.includes(status) && (!extraDone || extraDone(value))) return value; attempt++; await delay(5000); }
+  while (Date.now() - start < timeoutMs) { const value = unwrap(await api.get(path, 60_000)); const status = String(value?.status ?? ""); const percent = Number(value?.progress_percent ?? Math.min(95, 10 + attempt)); await ctx.progress(String(value?.current_stage ?? status ?? "processing"), Number.isFinite(percent) ? Math.min(95, percent) : 20, jobId); if (terminals.includes(status) && (!extraDone || extraDone(value))) return value; attempt++; await delay(2000); }
   throw new Error(`Local job ${jobId} did not reach terminal status before timeout`);
 }
 function ok(result: unknown): ExecutionResult { return { status: "completed", result }; }

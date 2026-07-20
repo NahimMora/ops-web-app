@@ -78,6 +78,30 @@ export function articleExcerpt(item: ContentItem) {
   return "";
 }
 
+export function articleParagraphs(item: ContentItem): string[] {
+  for (const candidate of [item.parrafos, item.paragraphs, item.contenido, item.content]) {
+    if (Array.isArray(candidate)) {
+      const paragraphs = candidate.map((value) => stripHtml(String(value))).map((value) => value.trim()).filter(Boolean);
+      if (paragraphs.length) return paragraphs;
+    }
+    if (typeof candidate === "string" && candidate.trim()) {
+      const paragraphs = candidate
+        .replace(/<\/p>\s*<p[^>]*>/gi, "\n\n")
+        .replace(/<br\s*\/?>/gi, "\n")
+        .split(/\n\s*\n|\r?\n/)
+        .map((value) => stripHtml(value).trim())
+        .filter(Boolean);
+      if (paragraphs.length) return paragraphs;
+    }
+  }
+  const excerpt = articleExcerpt(item);
+  return excerpt ? [excerpt] : [];
+}
+
+export function articleBody(item: ContentItem) {
+  return articleParagraphs(item).join("\n\n");
+}
+
 export function articleAge(item: ContentItem, now = Date.now()) {
   const relativeText = String(item.fecha_texto ?? "").trim();
   if (/^hace\s+/i.test(relativeText)) return relativeText.charAt(0).toUpperCase() + relativeText.slice(1);
@@ -282,8 +306,10 @@ export function ArticleList({
       {items.map(({ index, item }) => {
         const checked = selected.includes(index);
         const image = articleImage(item);
+        const body = articleBody(item);
+        const bodyRows = Math.max(8, body.split("\n").length + Math.ceil(body.length / 85));
         return (
-          <article key={`${articleUrl(item) || articleTitle(item)}-${index}`} className={checked ? "selected" : ""}>
+          <article key={`${articleUrl(item) || articleTitle(item)}-${index}`} className={`${checked ? "selected" : ""} ${editable ? "editable" : ""}`.trim()}>
             <button className="article-select" onClick={() => onToggle(index)} aria-label={checked ? "Quitar selección" : "Seleccionar"}>
               <span>{checked ? "✓" : ""}</span>
             </button>
@@ -295,12 +321,13 @@ export function ArticleList({
               {editable ? (
                 <>
                   <input className="article-title-input" value={articleTitle(item)} onChange={(event) => onChange?.(index, { ...item, titulo: event.target.value })} />
-                  <textarea value={articleExcerpt(item)} rows={view === "compact" ? 2 : 4} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value })} />
+                  <label className="article-editor-field"><span>Extracto</span><textarea value={articleExcerpt(item)} rows={3} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value })} /></label>
+                  <label className="article-editor-field"><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={bodyRows} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value) })} /></label>
                 </>
               ) : (
                 <>
                   <h3>{articleTitle(item)}</h3>
-                  {articleExcerpt(item) && <p>{articleExcerpt(item)}</p>}
+                  {body && <div className="article-body">{articleParagraphs(item).map((paragraph, paragraphIndex) => <p key={paragraphIndex}>{paragraph}</p>)}</div>}
                 </>
               )}
               {articleUrl(item) && <a href={articleUrl(item)} target="_blank" rel="noreferrer" onClick={(event) => event.stopPropagation()}>Abrir fuente ↗</a>}
@@ -310,6 +337,10 @@ export function ArticleList({
       })}
     </div>
   );
+}
+
+function splitParagraphs(value: string) {
+  return value.split(/\n\s*\n|\r?\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
 }
 
 export function PlatformChooser({ selected, onChange, allowed }: { selected: string[]; onChange(next: string[]): void; allowed?: string[] }) {

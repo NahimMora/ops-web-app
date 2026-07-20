@@ -6,7 +6,7 @@ Panel operativo remoto para `https://ops.holasalta.com`. Hostinger ejecuta una a
 
 - Acceso desde celular o computadora con email, contraseña, cookie segura, CSRF y TOTP opcional.
 - Ningún puerto de la PC queda expuesto a Internet. El agente consulta Hostinger por HTTPS cada 5 segundos.
-- Hostinger no procesa imágenes/videos, no ejecuta navegadores y no recibe credenciales de WordPress, Wix, R2 o redes.
+- Hostinger no procesa imágenes/videos, no ejecuta navegadores y no recibe credenciales de WordPress, R2 o redes.
 - Los videos se transmiten desde la API local directamente a Cloudflare R2 y quedan descargables desde `holasaltamedia.cc`.
 - MySQL conserva comandos, estados, auditoría y snapshots. Una caída eléctrica no pierde la cola.
 - Publicaciones con posible efecto externo no se reintentan automáticamente si el resultado quedó incierto.
@@ -76,7 +76,7 @@ El procedimiento exacto, validaciones y rollback están en [docs/DEPLOY_HOSTINGE
 - `Noticias`: carga, edición, guardado y publicación multicanal.
 - `Automatización`: start/stop/restart, jobs y pendientes de Instagram.
 - `Videos`: procesamiento por URL/lote, publicación y exportación directa a R2.
-- `Canales`: grupos de WhatsApp, operaciones Wix y posts WordPress.
+- Los grupos de WhatsApp se eligen dentro de cada publicación y los posts de WordPress se administran desde `Noticias`.
 - `Comandos`: progreso, resultado, errores, cancelación y reintento manual.
 - `Auditoría`: accesos y mutaciones administrativas.
 - `Seguridad`: activación de TOTP.

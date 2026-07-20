@@ -19,7 +19,7 @@ const whatsappGroupSchema = z.object({
   group_query_hint: z.string().max(300).nullish(),
   imagen: z.string().url().nullish(),
 });
-const publishPlatforms = z.enum(["web", "wix", "instagram", "facebook", "whatsapp", "x"]);
+const publishPlatforms = z.enum(["web", "instagram", "facebook", "whatsapp", "x"]);
 const videoPlatforms = z.enum(["facebook", "instagram", "x", "whatsapp"]);
 const jsonObject = z.record(z.string(), z.unknown());
 
@@ -29,7 +29,6 @@ export const commandPayloadSchemas = {
   "scraper.details": z.object({ source: scraperSourceSchema, urls: z.array(z.string().url()).min(1).max(100) }).strict(),
   "scraper.all.titles": z.object({ maxArticlesPerSource: z.number().int().min(1).max(50).default(10) }).strict(),
   "scraper.all.details": z.object({ items: z.array(z.object({ source: z.string().min(1).max(50), url: z.string().url() })).min(1).max(300) }).strict(),
-  "news.load": z.object({}).strict(),
   "news.load_wordpress": z.object({ perPage: z.number().int().min(1).max(100).default(20) }).strict(),
   "news.save": z.object({ items: z.array(jsonObject).max(1000) }).strict(),
   "news.clear_cache": z.object({}).strict(),
@@ -40,8 +39,6 @@ export const commandPayloadSchemas = {
     whatsappGroups: z.array(whatsappGroupSchema).max(100).default([]),
     whatsappGroupSet: jsonObject.nullish(),
     instagramEmojis: z.boolean().default(true),
-    wixPin: z.boolean().default(false),
-    wixCategories: z.boolean().default(false),
   }).strict(),
   "publish.clear": z.object({}).strict(),
   "automation.start": z.object({}).strict(),
@@ -77,8 +74,6 @@ export const commandPayloadSchemas = {
   "xvideo.clear_cache": z.object({}).strict(),
   "xvideo.clear_jobs": z.object({}).strict(),
   "xvideo.export_r2": z.object({ jobId: z.string().min(1).max(128), filename: z.string().max(200).optional() }).strict(),
-  "wix.pin": z.object({ postIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict(),
-  "wix.assign_categories": z.object({ postIds: z.array(z.string().min(1).max(200)).min(1).max(100) }).strict(),
   "wordpress.share": z.object({ post: jsonObject, platforms: z.array(publishPlatforms).min(1), whatsappGroups: z.array(whatsappGroupSchema).max(100).default([]), whatsappGroupSet: jsonObject.nullish(), instagramEmojis: z.boolean().default(true) }).strict(),
 } as const;
 
@@ -124,7 +119,6 @@ export function requiredCapability(type: CommandType): string {
   if (type.startsWith("scraper.")) return "scraping";
   if (type.startsWith("xvideo.")) return type === "xvideo.export_r2" ? "r2-video" : "video";
   if (type.startsWith("automation.") || type.startsWith("instagram.") || type.startsWith("whatsapp.")) return "automation";
-  if (type.startsWith("wix.")) return "wix";
   if (type.startsWith("wordpress.")) return "wordpress";
   if (type.startsWith("news.") || type.startsWith("publish.")) return "publishing";
   return "core";
@@ -135,9 +129,8 @@ export function resourceKeyFor(type: CommandType, payload: Record<string, unknow
   if (type.startsWith("xvideo.")) return `video:${String(payload.jobId ?? "pipeline")}`;
   if (type === "news.publish" || type === "wordpress.share") return "publishing:global";
   if (type.startsWith("instagram.")) return "instagram:default";
-  if (type.startsWith("wix.")) return "wix:default";
   return null;
 }
 export function hasExternalSideEffect(type: CommandType): boolean {
-  return ["news.publish", "wordpress.share", "xvideo.publish", "xvideo.batch.publish", "xvideo.share_test", "wix.pin", "wix.assign_categories", "instagram.pending.retry", "whatsapp.group_set.save"].includes(type);
+  return ["news.publish", "wordpress.share", "xvideo.publish", "xvideo.batch.publish", "xvideo.share_test", "instagram.pending.retry", "whatsapp.group_set.save"].includes(type);
 }

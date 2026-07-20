@@ -19,7 +19,7 @@ Crear una app separada en `D:\Ops`, accesible como `ops.holasalta.com`, reutiliz
 
 ### Fase 1 — Inventario y contratos
 
-- Mapear endpoints actuales de scraping, noticias, publicación, automatización, videos, WhatsApp, Wix y WordPress.
+- Mapear endpoints actuales de scraping, noticias, publicación, automatización, videos, WhatsApp y WordPress.
 - Crear esquemas estrictos por comando con límites de longitud/cantidad y validación de URLs.
 - Separar comandos de lectura/proceso de comandos con efecto externo.
 - Definir estados terminales y recursos exclusivos.
@@ -74,7 +74,7 @@ Aceptación: PC offline no afecta health web y la cola se retoma al volver.
 ### Fase 6 — Interfaz
 
 - Responsive para escritorio/celular.
-- Resumen, scrapers, noticias editables, automatización, videos/R2, canales, comandos, auditoría y seguridad.
+- Resumen, scrapers, noticias editables, automatización, videos/R2, comandos, auditoría y seguridad; WordPress y WhatsApp se integran en los flujos de publicación.
 - Progreso y estado obtenidos de Hostinger; el navegador no conoce la IP local.
 - Enlaces de descarga apuntan a `holasaltamedia.cc`.
 

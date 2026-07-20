@@ -35,21 +35,21 @@ La alternativa más factible y rentable es una arquitectura híbrida. Cloud Star
 | Destino confirma parte del lote | `partial_success` |
 | API local no puede verificar el resultado | `completed_unverified` o `requires_attention` |
 
-`requires_attention` nunca se reintenta solo. Un operador debe verificar Facebook/Instagram/X/WhatsApp/Wix/WordPress antes de usar Reintentar.
+`requires_attention` nunca se reintenta solo. Un operador debe verificar Facebook/Instagram/X/WhatsApp/WordPress antes de usar Reintentar.
 
 ## Idempotencia y concurrencia
 
 - Índice único `(type, idempotency_key)`.
 - Hash del payload: reutilizar la misma clave con otro contenido devuelve conflicto.
 - `SELECT ... FOR UPDATE` para un solo claim.
-- Locks por `resource_key` para publicación global, video, Wix, WhatsApp, Instagram y runtime.
+- Locks por `resource_key` para publicación global, video, WhatsApp, Instagram y runtime.
 - Token de lease hasheado; sólo el agente que posee la lease puede mutar el comando.
 - La exportación R2 usa una key determinista `ops/videos/{jobId}/{filename}`; repetirla reemplaza el mismo objeto, no crea duplicados.
 - El `claim` no tiene retry de red: una respuesta perdida podría contener una lease válida. Lecturas y heartbeats sí usan backoff.
 
 ## Datos sincronizados
 
-El agente envía snapshots de baja frecuencia: salud, automatización, jobs, pendientes, noticias, videos, grupos, Wix y WordPress. Los binarios nunca se sincronizan. Cada snapshot lleva revisión, hash, versión de esquema y fecha; la web marca datos viejos.
+El agente envía snapshots de baja frecuencia: salud, automatización, jobs, pendientes, noticias, videos, grupos y WordPress. Los binarios nunca se sincronizan. Cada snapshot lleva revisión, hash, versión de esquema y fecha; la web marca datos viejos.
 
 ## Escalabilidad realista
 

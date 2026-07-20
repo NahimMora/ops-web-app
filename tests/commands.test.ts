@@ -15,6 +15,17 @@ describe("command contracts and crash policy", () => {
     expect(hasExternalSideEffect("news.publish")).toBe(true);
   });
 
+  it("only accepts current publication destinations", () => {
+    expect(commandPayloadSchemas["news.publish"].safeParse({
+      selectedIndices: [],
+      directNewsItems: [{ titulo: "Prueba" }],
+      platforms: ["legacy-platform"],
+      whatsappGroups: [],
+      whatsappGroupSet: null,
+      instagramEmojis: true,
+    }).success).toBe(false);
+  });
+
   it("never auto-retries after an external side effect", () => {
     expect(expiredLeaseOutcome({ type: "news.publish", status: "running", sideEffectStarted: true, attemptCount: 1, maxAttempts: 1 })).toBe("requires_attention");
     expect(expiredLeaseOutcome({ type: "scraper.titles", status: "running", sideEffectStarted: false, attemptCount: 1, maxAttempts: 3 })).toBe("queued");

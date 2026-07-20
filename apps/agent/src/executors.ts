@@ -27,7 +27,6 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
     case "scraper.details": return ok(await api.post(`${scraperRoutes[p.source]}/details`, { urls: p.urls }, 20 * 60_000));
     case "scraper.all.titles": return ok(await api.post("/api/scraper-all/titles", { max_articles_per_source: p.maxArticlesPerSource }, 10 * 60_000));
     case "scraper.all.details": return ok(await api.post("/api/scraper-all/details", { items: p.items }, 30 * 60_000));
-    case "news.load": return ok(await api.post("/api/news/load", {}, 5 * 60_000));
     case "news.load_wordpress": return ok(await api.post(`/api/news/load-from-wordpress?per_page=${Number(p.perPage)}`, {}, 5 * 60_000));
     case "news.save": return ok(await api.post("/api/news/save", p.items, 5 * 60_000));
     case "news.clear_cache": return ok(await api.delete("/api/news/clear-cache"));
@@ -52,15 +51,13 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
     case "xvideo.clear_cache": return ok(await api.post("/api/x-video/cache/clear"));
     case "xvideo.clear_jobs": return ok(await api.post("/api/x-video/jobs/clear"));
     case "xvideo.export_r2": return exportVideo(p, api, context);
-    case "wix.pin": await context.sideEffect(); return resultStatus(await api.post("/api/wix/pin-posts", { post_ids: p.postIds }, 10 * 60_000));
-    case "wix.assign_categories": await context.sideEffect(); return resultStatus(await api.post("/api/wix/assign-categories", { post_ids: p.postIds }, 10 * 60_000));
     default: throw new Error(`Unsupported command type: ${command.type}`);
   }
 }
 
 async function publishNews(p: Record<string, any>, api: LocalApi, ctx: ExecutionContext) {
   await ctx.sideEffect();
-  const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: p.directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis, wix_pin: p.wixPin, wix_categories: p.wixCategories }, 60_000);
+  const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: p.directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis }, 60_000);
   const jobId = String(queued.job_id); await ctx.progress("local_job_queued", 5, jobId);
   const job = await poll(api, `/api/publish/jobs/${encodeURIComponent(jobId)}`, (data) => data?.job ?? data, ["success", "partial_success", "failed"], ctx, jobId, 4 * 60 * 60_000);
   return { status: mapStatus(job.status), result: job, localJobId: jobId } as ExecutionResult;
@@ -68,7 +65,7 @@ async function publishNews(p: Record<string, any>, api: LocalApi, ctx: Execution
 
 async function shareWordPress(p: Record<string, any>, api: LocalApi, ctx: ExecutionContext) {
   const post = p.post ?? {}; await ctx.sideEffect();
-  const queued = await api.post("/api/publish/", { selected_indices: [], direct_news_items: [{ titulo: post.titulo, url_wordpress: post.url_wordpress, web_url: post.url_wordpress, imagen: post.imagen, extracto: post.extracto }], platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis, wix_pin: false, wix_categories: false });
+  const queued = await api.post("/api/publish/", { selected_indices: [], direct_news_items: [{ titulo: post.titulo, url_wordpress: post.url_wordpress, web_url: post.url_wordpress, imagen: post.imagen, extracto: post.extracto }], platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis });
   const jobId = String(queued.job_id); const job = await poll(api, `/api/publish/jobs/${encodeURIComponent(jobId)}`, (data) => data?.job ?? data, ["success", "partial_success", "failed"], ctx, jobId, 4 * 60 * 60_000);
   return { status: mapStatus(job.status), result: job, localJobId: jobId } as ExecutionResult;
 }

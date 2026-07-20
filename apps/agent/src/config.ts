@@ -26,4 +26,4 @@ export const agentConfig = {
   localApiUsername: raw.OPS_LOCAL_API_USERNAME, localApiPassword: raw.DASHBOARD_PASSWORD,
   r2: { accessKeyId: raw.R2_ACCESS_KEY_ID, secretAccessKey: raw.R2_SECRET_ACCESS_KEY, endpoint: raw.R2_S3_ENDPOINT || (raw.R2_ACCOUNT_ID ? `https://${raw.R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : undefined), bucket: raw.R2_BUCKET, publicBaseUrl: raw.R2_PUBLIC_BASE_URL?.replace(/\/$/, ""), region: raw.R2_REGION, prefix: raw.OPS_R2_VIDEO_PREFIX.replace(/^\/+|\/+$/g, "") },
 };
-export const capabilities = ["core", "scraping", "publishing", "automation", "video", "r2-video", "wix", "wordpress"];
+export const capabilities = ["core", "scraping", "publishing", "automation", "video", "r2-video", "wordpress"];

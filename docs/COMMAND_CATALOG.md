@@ -11,7 +11,6 @@ Todos los comandos se validan en web y servidor, llevan idempotency key y se eje
 | `scraper.details` | artículos de URLs validadas | 20 min | sí, hasta 3 |
 | `scraper.all.titles` | titulares de todas | 10 min | sí, hasta 3 |
 | `scraper.all.details` | detalles multi-fuente | 30 min | sí, hasta 3 |
-| `news.load` | carga cache local | 5 min | sí |
 | `news.load_wordpress` | carga WordPress | 5 min | sí |
 | `news.save` | guarda edición local | 5 min | sí, revisar atomicidad local |
 | `news.clear_cache` | limpia noticias | 2 min | sí |
@@ -30,8 +29,6 @@ Todos los comandos se validan en web y servidor, llevan idempotency key y se eje
 | `instagram.pending.delete` | local | `instagram:default` | confirmar resultado |
 | `whatsapp.groups.extract` | lectura Playwright | `whatsapp:profile_default` | reintentable antes de side effect |
 | `whatsapp.group_set.save` | escritura | `whatsapp:profile_default` | atención manual |
-| `wix.pin` | sí | `wix:default` | atención manual |
-| `wix.assign_categories` | sí | `wix:default` | atención manual |
 
 ## Video y R2
 

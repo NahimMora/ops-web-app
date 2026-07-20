@@ -58,6 +58,20 @@ describe("repository concurrency and retry safety", () => {
     expect((await repository.getCommand("one"))?.status).toBe("queued");
   });
 
+  it("clears a previous lease error after the retried command completes", async () => {
+    const repository = new MemoryRepository(); await repository.initialize(bootstrap);
+    await repository.createCommand(input("one", "key-one"));
+    await repository.claimCommand("pc-holasalta-01", ["scraping"], "expired-lease", new Date(Date.now() - 1_000).toISOString());
+    await repository.reapExpired(new Date().toISOString());
+    expect(await repository.getCommand("one")).toMatchObject({ status: "queued", errorCode: "agent_lease_expired", retryable: true });
+
+    await repository.claimCommand("pc-holasalta-01", ["scraping"], "fresh-lease", new Date(Date.now() + 60_000).toISOString());
+    await repository.startCommand("one", "fresh-lease");
+    const completed = await repository.finishCommand("one", "fresh-lease", "completed", { result: { ok: true } });
+
+    expect(completed).toMatchObject({ status: "completed", errorCode: null, errorMessage: null, retryable: false });
+  });
+
   it("preserves partial completion as a terminal outcome", async () => {
     const repository = new MemoryRepository(); await repository.initialize(bootstrap);
     await repository.createCommand(input("one", "key-one"));

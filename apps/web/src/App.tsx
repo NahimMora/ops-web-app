@@ -3,12 +3,32 @@ import type { CommandRecord, CommandType } from "../../../packages/contracts/src
 import { bootstrapAuth, cancelCommand, createCommand, enableTotp, getAudit, getCommandEvents, getCommands, getDashboard, login, logout, retryCommand, setupTotp } from "./api";
 
 type Tab = "dashboard" | "scrapers" | "news" | "automation" | "videos" | "channels" | "commands" | "audit" | "settings";
-const nav: Array<[Tab, string, string]> = [["dashboard", "Resumen", "⌂"], ["scrapers", "Scrapers", "⌁"], ["news", "Noticias", "▤"], ["automation", "Automatización", "⚙"], ["videos", "Videos", "▶"], ["channels", "Canales", "◉"], ["commands", "Comandos", "⇄"], ["audit", "Auditoría", "☷"], ["settings", "Seguridad", "◆"]];
+type IconName = "home" | "news" | "scraper" | "video" | "automation" | "channels" | "queue" | "audit" | "security";
+type NavItem = { id: Tab; label: string; description: string; icon: IconName };
+const navGroups: Array<{ title: string; items: NavItem[] }> = [
+  { title: "Dashboard", items: [{ id: "dashboard", label: "Resumen", description: "Estado general y acciones rápidas", icon: "home" }] },
+  { title: "Contenido", items: [{ id: "news", label: "Noticias", description: "Preparación y publicación multicanal", icon: "news" }] },
+  { title: "Producción", items: [
+    { id: "scrapers", label: "Scrapers", description: "Fuentes, titulares y artículos", icon: "scraper" },
+    { id: "videos", label: "Video Pipeline", description: "Procesamiento, publicación y R2", icon: "video" },
+  ] },
+  { title: "Automatización", items: [
+    { id: "automation", label: "Runtime", description: "Workers y trabajos locales", icon: "automation" },
+    { id: "channels", label: "Canales", description: "WordPress, Wix y WhatsApp", icon: "channels" },
+  ] },
+  { title: "Operación", items: [
+    { id: "commands", label: "Cola de trabajos", description: "Seguimiento, reintentos y detalle", icon: "queue" },
+    { id: "audit", label: "Auditoría", description: "Registro de accesos y acciones", icon: "audit" },
+  ] },
+  { title: "Configuración", items: [{ id: "settings", label: "Seguridad", description: "Cuenta y segundo factor", icon: "security" }] },
+];
+const nav = navGroups.flatMap((group) => group.items);
 const platforms = ["web", "instagram", "facebook", "whatsapp", "x"];
 
 export function App() {
   const [user, setUser] = useState<any>(null); const [checking, setChecking] = useState(true); const [tab, setTab] = useState<Tab>("dashboard");
   const [dashboard, setDashboard] = useState<any>(null); const [commands, setCommands] = useState<CommandRecord[]>([]); const [error, setError] = useState(""); const [notice, setNotice] = useState("");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false); const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const refresh = useCallback(async () => { if (!user) return; try { const [d, c] = await Promise.all([getDashboard(), getCommands()]); setDashboard(d); setCommands(c.items); setError(""); } catch (e) { setError(message(e)); } }, [user]);
   useEffect(() => { bootstrapAuth().then(setUser).catch(() => undefined).finally(() => setChecking(false)); }, []);
   useEffect(() => { if (!user) return; void refresh(); const timer = setInterval(refresh, 5000); return () => clearInterval(timer); }, [user, refresh]);
@@ -16,9 +36,18 @@ export function App() {
   if (checking) return <div className="center"><div className="loader" /></div>;
   if (!user) return <Login onLogin={setUser} />;
   const snapshots = Object.fromEntries((dashboard?.snapshots ?? []).map((s: any) => [s.key, s]));
-  return <div className="shell">
-    <aside><div className="brand"><div className="brand-mark">HS</div><div><strong>HolaSalta</strong><span>Operations</span></div></div><nav>{nav.map(([id, label, icon]) => <button key={id} className={tab === id ? "active" : ""} onClick={() => setTab(id)}><i>{icon}</i>{label}</button>)}</nav><div className="sidebar-foot"><StatusDot online={dashboard?.agent?.online} /> <span>{dashboard?.agent?.online ? "PC conectada" : "PC sin conexión"}</span></div></aside>
-    <main><header><div><h1>{nav.find((item) => item[0] === tab)?.[1]}</h1><p>Control remoto seguro · ejecución local</p></div><div className="user"><span>{user.email}</span><button className="ghost" onClick={() => logout().then(() => setUser(null))}>Salir</button></div></header>
+  const currentPage = nav.find((item) => item.id === tab) ?? nav[0]!;
+  const navigate = (id: Tab) => { setTab(id); setMobileNavOpen(false); };
+  return <div className={`shell ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <aside className={mobileNavOpen ? "mobile-open" : ""}>
+      <div className="brand-panel"><div className="brand"><div className="brand-mark">HS</div><div className="brand-copy"><strong>HolaSalta</strong><span>Content & Automation</span></div></div><button className="mobile-close" onClick={() => setMobileNavOpen(false)} aria-label="Cerrar navegación">×</button></div>
+      <nav aria-label="Navegación principal">{navGroups.map((group) => <div className="nav-group" key={group.title}><p>{group.title}</p>{group.items.map((item) => <button key={item.id} title={item.label} className={tab === item.id ? "active" : ""} onClick={() => navigate(item.id)}><NavIcon name={item.icon} /><span>{item.label}</span>{item.id === "commands" && (dashboard?.counts?.active ?? 0) > 0 && <b>{dashboard.counts.active}</b>}</button>)}</div>)}</nav>
+      <div className="sidebar-foot"><div><StatusDot online={dashboard?.agent?.online} /><span>{dashboard?.agent?.online ? "PC operativa conectada" : "PC operativa sin conexión"}</span></div><small>Las tareas pesadas se ejecutan localmente.</small></div>
+    </aside>
+    {mobileNavOpen && <button className="nav-backdrop" aria-label="Cerrar navegación" onClick={() => setMobileNavOpen(false)} />}
+    <div className="content-shell">
+      <header className="topbar"><div className="topbar-start"><button className="icon-button mobile-menu" onClick={() => setMobileNavOpen(true)} aria-label="Abrir navegación">☰</button><button className="icon-button collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Contraer navegación">{sidebarCollapsed ? "›" : "‹"}</button><div><strong>{currentPage.label}</strong><span>HolaSalta Ops</span></div></div><div className="topbar-end"><button className={`agent-pill ${dashboard?.agent?.online ? "online" : "offline"}`} onClick={() => navigate("dashboard")}><StatusDot online={dashboard?.agent?.online} />{dashboard?.agent?.online ? "Agente conectado" : "Agente desconectado"}</button><button className="jobs-pill" onClick={() => navigate("commands")}>Trabajos activos <b>{dashboard?.counts?.active ?? 0}</b></button><div className="user"><span>{user.email}</span><button className="ghost" onClick={() => logout().then(() => setUser(null))}>Salir</button></div></div></header>
+      <main className="workspace"><div className="page-heading"><div><p className="eyebrow">HolaSalta Operations</p><h1>{currentPage.label}</h1><p>{currentPage.description}</p></div><button className="refresh-button" onClick={() => void refresh()}>Actualizar vista</button></div>
       {error && <div className="alert error">{error}<button onClick={() => setError("")}>×</button></div>}{notice && <div className="alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
       {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} />}
       {tab === "scrapers" && <Scrapers run={run} commands={commands} />}
@@ -29,7 +58,8 @@ export function App() {
       {tab === "commands" && <Commands items={commands} refresh={refresh} />}
       {tab === "audit" && <Audit />}
       {tab === "settings" && <Settings user={user} setUser={setUser} />}
-    </main>
+      </main>
+    </div>
   </div>;
 }
 
@@ -40,7 +70,11 @@ function Login({ onLogin }: { onLogin(user: any): void }) {
 }
 
 function Dashboard({ data, commands, snapshots, run }: any) {
-  const status = snapshots["automation.status"]?.payload; return <><section className="stats"><Stat label="Agente local" value={data?.agent?.online ? "Conectado" : "Desconectado"} tone={data?.agent?.online ? "good" : "bad"} /><Stat label="Comandos activos" value={data?.counts?.active ?? 0} /><Stat label="Requieren atención" value={data?.counts?.attention ?? 0} tone={data?.counts?.attention ? "warn" : "good"} /><Stat label="Runtime" value={status?.status ?? "Sin datos"} /></section><section className="grid two"><Card title="Acciones rápidas"><div className="actions"><button onClick={() => run("snapshot.refresh", {})}>Actualizar estado</button><button onClick={() => run("scraper.all.titles", { maxArticlesPerSource: 10 })}>Buscar noticias</button><button onClick={() => run("automation.restart", {})}>Reiniciar runtime</button></div></Card><Card title="Estado local"><JsonPreview value={status ?? { message: "Esperando agente" }} /></Card></section><Card title="Actividad reciente"><CommandTable items={commands.slice(0, 10)} /></Card></>;
+  const status = snapshots["automation.status"]?.payload;
+  const snapshotList = Object.values(snapshots) as any[];
+  const available = snapshotList.filter((item) => !item?.payload?.unavailable).length;
+  const successful = commands.filter((command: CommandRecord) => command.status === "completed").length;
+  return <><section className="stats"><Stat label="Agente local" value={data?.agent?.online ? "Conectado" : "Desconectado"} tone={data?.agent?.online ? "good" : "bad"} /><Stat label="Trabajos activos" value={data?.counts?.active ?? 0} /><Stat label="Completados" value={successful} tone="good" /><Stat label="Requieren atención" value={data?.counts?.attention ?? 0} tone={data?.counts?.attention ? "warn" : "good"} /><Stat label="Fuentes disponibles" value={`${available}/${snapshotList.length || 10}`} tone={available === snapshotList.length ? "good" : "warn"} /></section><section className="dashboard-grid"><Card title="Acciones rápidas"><p className="card-intro">Dispará tareas frecuentes en la PC operativa sin abrir una sesión remota.</p><div className="quick-actions"><button onClick={() => run("snapshot.refresh", {})}><NavIcon name="queue" /><span><strong>Sincronizar estado</strong><small>Actualizar datos locales</small></span></button><button onClick={() => run("scraper.all.titles", { maxArticlesPerSource: 10 })}><NavIcon name="scraper" /><span><strong>Buscar noticias</strong><small>Consultar todas las fuentes</small></span></button><button onClick={() => run("automation.restart", {})}><NavIcon name="automation" /><span><strong>Reiniciar runtime</strong><small>Restablecer workers locales</small></span></button></div></Card><Card title="Salud operativa"><div className="health-list"><HealthRow label="Backend local" value={data?.agent?.status ?? "offline"} good={data?.agent?.online} /><HealthRow label="Automatización" value={status?.status ?? "Sin datos"} good={status?.status === "running" || status?.status === "healthy"} /><HealthRow label="Último contacto" value={shortDate(data?.agent?.lastSeenAt)} good={data?.agent?.online} /><HealthRow label="Snapshots" value={`${available} disponibles`} good={available > 0} /></div></Card></section><Card title="Actividad reciente"><div className="section-heading"><p>Últimos comandos enviados desde esta consola.</p><button onClick={() => document.querySelector<HTMLButtonElement>('nav button[title="Cola de trabajos"]')?.click()}>Ver toda la cola</button></div><CommandTable items={commands.slice(0, 10)} /></Card></>;
 }
 
 function Scrapers({ run, commands }: any) {
@@ -73,21 +107,30 @@ function Channels({ snapshots, run }: any) {
 }
 
 function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promise<void> }) {
-  const [selected, setSelected] = useState<any>(null); const [events, setEvents] = useState<any[]>([]); const open = async (item: any) => { setSelected(item); setEvents((await getCommandEvents(item.id)).items); };
-  return <><Card title="Historial"><CommandTable items={items} onOpen={open} /></Card>{selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelected(null)}>×</button><h2>{selected.type}</h2><Badge status={selected.status} /><JsonPreview value={{ command: selected, events }} /><div className="actions"><button onClick={() => cancelCommand(selected.id).then(refresh)}>Cancelar</button><button onClick={() => retryCommand(selected.id).then(refresh)}>Reintentar</button></div></div></div>}</>;
+  const [selected, setSelected] = useState<any>(null); const [events, setEvents] = useState<any[]>([]); const [filter, setFilter] = useState("all");
+  const open = async (item: any) => { setSelected(item); setEvents((await getCommandEvents(item.id)).items); };
+  const filtered = filter === "all" ? items : items.filter((item) => item.status === filter);
+  const active = items.filter((item) => ["queued", "claimed", "running"].includes(item.status)).length;
+  const failed = items.filter((item) => ["failed", "requires_attention", "waiting_manual_retry"].includes(item.status)).length;
+  return <><section className="queue-summary"><Stat label="Total visible" value={items.length} /><Stat label="En ejecución" value={active} tone={active ? "neutral" : "good"} /><Stat label="Con error o atención" value={failed} tone={failed ? "bad" : "good"} /></section><Card title="Cola e historial"><div className="section-heading"><p>Los trabajos pesados se reclaman y ejecutan en la PC local.</p><div className="queue-controls"><select value={filter} onChange={(event) => setFilter(event.target.value)}><option value="all">Todos los estados</option><option value="queued">En cola</option><option value="running">Ejecutando</option><option value="completed">Completados</option><option value="failed">Fallidos</option><option value="requires_attention">Requieren atención</option></select><button onClick={() => void refresh()}>Actualizar</button></div></div>{filtered.length ? <CommandTable items={filtered} onOpen={open} /> : <Empty text="No hay trabajos para este filtro." />}</Card>{selected && <div className="modal-backdrop" onClick={() => setSelected(null)}><div className="modal" onClick={(e) => e.stopPropagation()}><button className="modal-close" onClick={() => setSelected(null)}>×</button><p className="eyebrow">Detalle del trabajo</p><h2>{commandLabel(selected.type)}</h2><div className="modal-meta"><Badge status={selected.status} /><span>{shortDate(selected.createdAt)}</span><code>{String(selected.id).slice(0, 8)}</code></div>{selected.errorMessage && <div className="command-error"><strong>{selected.errorCode ?? "Error de ejecución"}</strong><p>{selected.errorMessage}</p></div>}<JsonPreview value={{ command: selected, events }} /><div className="actions">{["queued", "claimed"].includes(selected.status) && <button onClick={() => cancelCommand(selected.id).then(refresh)}>Cancelar</button>}{["failed", "waiting_manual_retry", "requires_attention"].includes(selected.status) && <button className="primary" onClick={() => retryCommand(selected.id).then(refresh)}>Reintentar</button>}</div></div></div>}</>;
 }
 
 function Audit() { const [items, setItems] = useState<any[]>([]); useEffect(() => { getAudit().then((r) => setItems(r.items)).catch(() => undefined); }, []); return <Card title="Auditoría"><table><thead><tr><th>Fecha</th><th>Actor</th><th>Acción</th><th>Resultado</th></tr></thead><tbody>{items.map((a) => <tr key={a.id}><td>{shortDate(a.createdAt)}</td><td>{a.actorType}</td><td>{a.action}</td><td>{a.result}</td></tr>)}</tbody></table></Card>; }
 function Settings({ user, setUser }: any) { const [setup, setSetup] = useState<any>(null); const [code, setCode] = useState(""); return <section className="grid two"><Card title="Autenticación de dos factores"><p>Estado: <strong>{user.totpEnabled ? "Activado" : "Desactivado"}</strong></p>{!user.totpEnabled && !setup && <button onClick={() => setupTotp().then(setSetup)}>Configurar TOTP</button>}{setup && <><p>Ingresá esta clave en tu autenticador:</p><code className="secret-display">{setup.secret}</code><Field label="Código de 6 dígitos"><input value={code} onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))} maxLength={6} /></Field><button className="primary" onClick={() => enableTotp(code).then(() => setUser({ ...user, totpEnabled: true }))}>Activar</button></>}</Card><Card title="Política de seguridad"><ul><li>Cookie HttpOnly y SameSite Strict</li><li>CSRF en mutaciones</li><li>Sesiones revocables</li><li>Agente con token independiente</li><li>Credenciales de publicación sólo locales</li></ul></Card></section>; }
 
-function CommandTable({ items, onOpen }: { items: any[]; onOpen?: (item: any) => void }) { return <div className="table-wrap"><table><thead><tr><th>Creado</th><th>Comando</th><th>Estado</th><th>Etapa</th><th>Progreso</th></tr></thead><tbody>{items.map((c) => <tr key={c.id} onClick={() => onOpen?.(c)} className={onOpen ? "clickable" : ""}><td>{shortDate(c.createdAt)}</td><td>{c.type}</td><td><Badge status={c.status} /></td><td>{c.currentStage}</td><td>{c.progressPercent}%</td></tr>)}</tbody></table></div>; }
+function CommandTable({ items, onOpen }: { items: any[]; onOpen?: (item: any) => void }) { return <div className="table-wrap"><table><thead><tr><th>Creado</th><th>Trabajo</th><th>Estado</th><th>Etapa</th><th>Progreso</th></tr></thead><tbody>{items.map((c) => <tr key={c.id} onClick={() => onOpen?.(c)} className={onOpen ? "clickable" : ""}><td>{shortDate(c.createdAt)}</td><td><strong className="command-name">{commandLabel(c.type)}</strong><small className="command-code">{c.type}</small></td><td><Badge status={c.status} /></td><td>{stageLabel(c.currentStage)}</td><td><div className="progress-cell"><div><span style={{ width: `${Math.max(0, Math.min(100, c.progressPercent ?? 0))}%` }} /></div><small>{c.progressPercent ?? 0}%</small></div></td></tr>)}</tbody></table></div>; }
 function Card({ title, children, className = "" }: any) { return <section className={`card ${className}`}><h2>{title}</h2>{children}</section>; }
 function Stat({ label, value, tone = "neutral" }: any) { return <div className={`stat ${tone}`}><span>{label}</span><strong>{value}</strong></div>; }
 function Field({ label, children }: any) { return <label className="field"><span>{label}</span>{children}</label>; }
-function Badge({ status }: { status: string }) { return <span className={`badge ${status}`}>{status}</span>; }
+function Badge({ status }: { status: string }) { return <span className={`badge ${status}`}>{statusLabel(status)}</span>; }
 function StatusDot({ online }: { online: boolean }) { return <span className={`dot ${online ? "online" : "offline"}`} />; }
 function Empty({ text }: { text: string }) { return <div className="empty">{text}</div>; }
 function JsonPreview({ value }: { value: unknown }) { return <pre>{JSON.stringify(value, null, 2)}</pre>; }
+function HealthRow({ label, value, good }: { label: string; value: string; good: boolean }) { return <div><span><StatusDot online={good} />{label}</span><strong>{value}</strong></div>; }
+function NavIcon({ name }: { name: IconName }) { const paths: Record<IconName, string> = { home: "M3 10.8 12 3l9 7.8V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z", news: "M4 4h16v16H4zM8 8h8M8 12h8M8 16h5", scraper: "M4 6h16M7 12h10M10 18h4", video: "M4 5h12v14H4zM16 10l4-3v10l-4-3z", automation: "M12 3v3m0 12v3M3 12h3m12 0h3M5.6 5.6l2.1 2.1m8.6 8.6 2.1 2.1m0-12.8-2.1 2.1m-8.6 8.6-2.1 2.1M16 12a4 4 0 1 1-8 0 4 4 0 0 1 8 0Z", channels: "M6 8a6 6 0 0 1 12 0M9 11a3 3 0 0 1 6 0M12 15v6", queue: "M4 6h16M4 12h16M4 18h10", audit: "M6 3h12v18H6zM9 8h6m-6 4h6m-6 4h4", security: "M12 3 5 6v5c0 5 3 8 7 10 4-2 7-5 7-10V6Z" }; return <svg viewBox="0 0 24 24" aria-hidden="true"><path d={paths[name]} /></svg>; }
 function lines(value: string) { return [...new Set(value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean))]; }
 function shortDate(value?: string) { return value ? new Date(value).toLocaleString("es-AR") : "—"; }
+function statusLabel(status: string) { return ({ queued: "En cola", claimed: "Asignado", running: "Ejecutando", completed: "Completado", partial_success: "Éxito parcial", completed_unverified: "Sin verificar", waiting_manual_retry: "Reintento manual", requires_attention: "Requiere atención", failed: "Fallido", cancelled: "Cancelado", success: "Correcto", ready: "Listo", processing: "Procesando" } as Record<string, string>)[status] ?? status; }
+function commandLabel(type: string) { return ({ "snapshot.refresh": "Sincronizar estado", "scraper.titles": "Buscar titulares", "scraper.details": "Preparar artículos", "scraper.all.titles": "Buscar en todas las fuentes", "scraper.all.details": "Preparar artículos en lote", "news.load": "Cargar noticias", "news.load_wordpress": "Cargar desde WordPress", "news.save": "Guardar noticias", "news.publish": "Publicar noticias", "automation.start": "Iniciar automatización", "automation.stop": "Detener automatización", "automation.restart": "Reiniciar automatización", "whatsapp.groups.extract": "Extraer grupos de WhatsApp", "xvideo.create_url": "Procesar video", "xvideo.batch.create": "Procesar lote de videos", "xvideo.publish": "Publicar video", "xvideo.export_r2": "Subir video a R2", "wix.pin": "Fijar posts en Wix", "wix.assign_categories": "Asignar categorías en Wix", "wordpress.share": "Compartir post de WordPress" } as Record<string, string>)[type] ?? type; }
+function stageLabel(stage?: string | null) { if (!stage) return "—"; if (stage.startsWith("snapshot:")) return `Sincronizando ${stage.slice(9)}`; return ({ queued: "Esperando agente", claimed: "Asignado al agente", running: "Iniciando", dispatching: "Enviando a la PC", completed: "Finalizado", failed: "Falló" } as Record<string, string>)[stage] ?? stage; }
 function message(error: unknown) { return error instanceof Error ? error.message : String(error); }

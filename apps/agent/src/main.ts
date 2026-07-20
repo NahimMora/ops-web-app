@@ -9,7 +9,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function localHealth(): Promise<"healthy" | "degraded" | "offline"> { try { const result = await local.get("/health", 5000); return result?.status === "healthy" ? "healthy" : "degraded"; } catch { return "offline"; } }
 async function heartbeatLoop() { while (!stopping) { try { await ops.heartbeat(await localHealth(), capabilities, { active }); } catch (error) { console.error(`[agent] heartbeat failed: ${safeError(error)}`); } await delay(agentConfig.heartbeatMs); } }
-async function snapshotLoop() { while (!stopping) { try { if ((await localHealth()) !== "offline") await syncSnapshots(local, ops); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(active ? 10_000 : 20_000); } }
+async function snapshotLoop() { while (!stopping) { try { if (!active && (await localHealth()) !== "offline") await syncSnapshots(local, ops); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(active ? 10_000 : 20_000); } }
 
 async function processLoop() {
   while (!stopping) {
@@ -22,9 +22,13 @@ async function processLoop() {
         const result = await executeCommand(command, local, {
           progress: async (nextStage, nextProgress, nextLocalJobId) => { stage = nextStage; progress = nextProgress; localJobId = nextLocalJobId ?? localJobId; await ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId); },
           sideEffect: async () => { if (!sideEffect) { await ops.sideEffect(command.id, leaseToken); sideEffect = true; } },
-          refreshSnapshots: () => syncSnapshots(local, ops),
+          refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
         });
-        await syncSnapshots(local, ops).catch(() => undefined); await ops.complete(command.id, leaseToken, result.status, result.result, result.localJobId ?? localJobId); console.log(`[agent] completed ${command.id} (${result.status})`);
+        await ops.complete(command.id, leaseToken, result.status, result.result, result.localJobId ?? localJobId);
+        console.log(`[agent] completed ${command.id} (${result.status})`);
+        if (command.type !== "snapshot.refresh") {
+          void syncSnapshots(local, ops).catch((error) => console.error(`[agent] post-command snapshot sync failed: ${safeError(error)}`));
+        }
       } catch (error) {
         const message = safeError(error); const retryable = !sideEffect && (!(error instanceof LocalApiError) || error.status >= 500 || error.status === 429); const status = sideEffect ? "requires_attention" : "failed";
         await ops.fail(command.id, leaseToken, status, sideEffect ? "external_result_unknown" : "execution_failed", message, retryable, localJobId).catch((reportError) => console.error(`[agent] could not report failure for ${command.id}: ${safeError(reportError)}`)); console.error(`[agent] failed ${command.id}: ${message}`);

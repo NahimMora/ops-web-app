@@ -6,13 +6,23 @@ import { agentConfig } from "./config.js";
 import { LocalApi } from "./local-api.js";
 
 export type ExecutionResult = { status: CommandStatus; result: unknown; localJobId?: string };
-export type ExecutionContext = { progress(stage: string, percent: number, localJobId?: string): Promise<void>; sideEffect(): Promise<void>; refreshSnapshots(): Promise<void> };
+export type ExecutionContext = {
+  progress(stage: string, percent: number, localJobId?: string): Promise<void>;
+  sideEffect(): Promise<void>;
+  refreshSnapshots(keys?: string[], onProgress?: (key: string, current: number, total: number) => Promise<void> | void): Promise<void>;
+};
 const scraperRoutes: Record<string, string> = { minutouno: "/api/scraper", tn: "/api/scraper-tn", na: "/api/scraper-na", ambito: "/api/scraper-ambito", aries: "/api/scraper-ariesonline", justicia: "/api/scraper-justiciasalta", fiscales: "/api/scraper-fiscales", nuevodiario: "/api/scraper-nuevodiario", elonce: "/api/scraper-elonce", eloncesalta: "/api/scraper-eloncesalta", eltribuno: "/api/scraper-eltribuno", infobae: "/api/scraper-infobae", quepasasalta: "/api/scraper-quepasasalta" };
 
 export async function executeCommand(command: CommandRecord, api: LocalApi, context: ExecutionContext): Promise<ExecutionResult> {
   const p = command.payload as Record<string, any>; await context.progress("dispatching", 2);
   switch (command.type) {
-    case "snapshot.refresh": await context.refreshSnapshots(); return ok({ refreshed: true });
+    case "snapshot.refresh": {
+      const keys = Array.isArray(p.keys) ? p.keys : undefined;
+      await context.refreshSnapshots(keys, async (key, current, total) => {
+        await context.progress(`snapshot:${key}`, Math.max(5, Math.round((current / total) * 90)));
+      });
+      return ok({ refreshed: true, keys: keys ?? "all" });
+    }
     case "scraper.titles": return ok(await api.post(`${scraperRoutes[p.source]}/titles`, { max_articles: p.maxArticles }, 5 * 60_000));
     case "scraper.details": return ok(await api.post(`${scraperRoutes[p.source]}/details`, { urls: p.urls }, 20 * 60_000));
     case "scraper.all.titles": return ok(await api.post("/api/scraper-all/titles", { max_articles_per_source: p.maxArticlesPerSource }, 10 * 60_000));

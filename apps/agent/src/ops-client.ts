@@ -1,4 +1,4 @@
-import type { CommandRecord, CommandStatus, SnapshotRecord } from "../../../packages/contracts/src/index.js";
+import type { CommandRecord, CommandStatus, SnapshotInput } from "../../../packages/contracts/src/index.js";
 import { agentConfig } from "./config.js";
 
 type Claim = { command: CommandRecord; leaseToken: string; leaseSeconds: number };
@@ -15,7 +15,7 @@ export class OpsClient {
   async sideEffect(id: string, leaseToken: string) { return this.update(id, "side-effect", { leaseToken }); }
   async complete(id: string, leaseToken: string, status: CommandStatus, result: unknown, localJobId?: string) { return this.update(id, "complete", { leaseToken, status, result, localJobId, progressPercent: 100, currentStage: status }); }
   async fail(id: string, leaseToken: string, status: CommandStatus, errorCode: string, errorMessage: string, retryable: boolean, localJobId?: string) { return this.update(id, "fail", { leaseToken, status, errorCode, errorMessage: errorMessage.slice(0, 2000), retryable, localJobId, currentStage: status }); }
-  async snapshot(snapshot: SnapshotRecord) { return this.request(`/api/agent/snapshots/${encodeURIComponent(snapshot.key)}`, { method: "PUT", body: JSON.stringify(snapshot) }); }
+  async snapshot(snapshot: SnapshotInput) { return this.request(`/api/agent/snapshots/${encodeURIComponent(snapshot.key)}`, { method: "PUT", body: JSON.stringify(snapshot) }); }
   async events(commandId: string, events: Array<{ eventType: string; level: string; message: string; metadata?: unknown }>) { if (!events.length) return; return this.request("/api/agent/events/batch", { method: "POST", body: JSON.stringify({ commandId, events }) }); }
   private async update(id: string, action: string, body: unknown) { return this.request(`/api/agent/commands/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) }); }
   private async request(path: string, init: RequestInit) { const response = await this.fetch(path, init); if (!response.ok) throw await responseError(response); return response.status === 204 ? null : response.json(); }

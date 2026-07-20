@@ -131,7 +131,11 @@ export class MySqlRepository implements Repository {
   }
   async finishCommand(id: string, leaseHash: string, status: CommandStatus, patch: UpdateInput) {
     if (!isTerminal(status)) return null;
-    const values = patchValues(patch); values.assignments.push("status=?", "completed_at=UTC_TIMESTAMP(3)", "lease_expires_at=NULL", "lease_token_hash=NULL", "updated_at=UTC_TIMESTAMP(3)"); values.params.push(status, id, leaseHash);
+    const values = patchValues(patch);
+    if (["completed", "partial_success", "completed_unverified"].includes(status)) {
+      values.assignments.push("error_code=NULL", "error_message=NULL", "retryable=0");
+    }
+    values.assignments.push("status=?", "completed_at=UTC_TIMESTAMP(3)", "lease_expires_at=NULL", "lease_token_hash=NULL", "updated_at=UTC_TIMESTAMP(3)"); values.params.push(status, id, leaseHash);
     const [result] = await this.pool.query<any>(`UPDATE commands SET ${values.assignments.join(",")} WHERE id=? AND status IN ('claimed','running') AND lease_token_hash=? AND lease_expires_at>UTC_TIMESTAMP(3)`, values.params);
     if (result.affectedRows !== 1) return null;
     await this.pool.query("DELETE FROM resource_locks WHERE command_id=?", [id]); return this.getCommand(id);

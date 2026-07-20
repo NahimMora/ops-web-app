@@ -112,9 +112,12 @@ export interface CommandRecord {
   localJobId: string | null; result: unknown; errorCode: string | null; errorMessage: string | null;
   retryable: boolean; attemptCount: number; maxAttempts: number; createdAt: string; updatedAt: string; completedAt: string | null;
 }
-export interface SnapshotRecord {
+export interface SnapshotInput {
   key: string; revision: number; schemaVersion: number; payload: unknown; contentHash: string;
-  capturedAt: string; updatedAt: string; fresh?: boolean;
+  capturedAt: string;
+}
+export interface SnapshotRecord extends SnapshotInput {
+  updatedAt: string; fresh?: boolean;
 }
 
 export function requiredCapability(type: CommandType): string {

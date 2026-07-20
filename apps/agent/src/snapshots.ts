@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SnapshotInput } from "../../../packages/contracts/src/index.js";
-import { LocalApi, LocalApiError } from "./local-api.js";
-import { OpsClient } from "./ops-client.js";
+import type { LocalApi } from "./local-api.js";
+import type { OpsClient } from "./ops-client.js";
 
 const TEN_MINUTES = 10 * 60_000;
 const sources: Array<{ key: string; path: string; timeout: number; refreshMs: number }> = [
@@ -46,7 +46,10 @@ export async function syncSnapshots(local: LocalApi, ops: OpsClient, only?: stri
 }
 
 function snapshotErrorCode(error: unknown): string {
-  if (error instanceof LocalApiError) return `local_http_${error.status}`;
+  if (typeof error === "object" && error && "status" in error) {
+    const status = Number(error.status);
+    if (Number.isInteger(status) && status >= 100 && status <= 599) return `local_http_${status}`;
+  }
   if (error instanceof Error && error.name === "TimeoutError") return "local_timeout";
   return error instanceof Error ? `local_${error.name.toLowerCase()}` : "local_unknown_error";
 }

@@ -14,7 +14,7 @@ import {
   retryCommand,
   setupTotp,
 } from "./api";
-import { News, Scrapers, WhatsAppSelector, normalizeGroups } from "./content";
+import { ManualNews, News, Scrapers, WhatsAppSelector, normalizeGroups } from "./content";
 import {
   Badge,
   Card,
@@ -34,14 +34,15 @@ import {
   type RunCommand,
 } from "./ui";
 
-type Tab = "dashboard" | "news" | "scrapers" | "videos" | "automation" | "commands" | "audit" | "settings";
-type IconName = "home" | "news" | "scraper" | "video" | "automation" | "queue" | "audit" | "security";
+type Tab = "dashboard" | "manual-news" | "news" | "scrapers" | "videos" | "automation" | "commands" | "audit" | "settings";
+type IconName = "home" | "manual-news" | "news" | "scraper" | "video" | "automation" | "queue" | "audit" | "security";
 type NavItem = { id: Tab; label: string; description: string; icon: IconName };
 
 const navGroups: Array<{ title: string; items: NavItem[] }> = [
   { title: "Inicio", items: [{ id: "dashboard", label: "Resumen", description: "Estado general y acciones rápidas", icon: "home" }] },
   { title: "Contenido", items: [
     { id: "scrapers", label: "Scrapers", description: "Buscar, preparar y publicar", icon: "scraper" },
+    { id: "manual-news", label: "Publicación manual", description: "Crear una noticia y publicarla en uno o más destinos", icon: "manual-news" },
     { id: "news", label: "Noticias", description: "Redacción, WordPress y redes", icon: "news" },
     { id: "videos", label: "Videos", description: "Procesamiento, publicación y R2", icon: "video" },
   ] },
@@ -164,6 +165,7 @@ export function App() {
           {notice && <div className="alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
           {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} navigate={navigate} />}
           {tab === "scrapers" && <Scrapers commands={commands} snapshots={snapshots} run={run} />}
+          {tab === "manual-news" && <ManualNews commands={commands} snapshots={snapshots} run={run} />}
           {tab === "news" && <News commands={commands} snapshots={snapshots} run={run} />}
           {tab === "automation" && <Automation snapshots={snapshots} run={run} />}
           {tab === "videos" && <Videos snapshots={snapshots} commands={commands} run={run} />}
@@ -228,6 +230,7 @@ function Dashboard({ data, commands, snapshots, run, navigate }: any) {
         <Card title="Acciones rápidas" eyebrow="Operación diaria">
           <div className="quick-actions">
             <button onClick={() => navigate("scrapers")}><NavIcon name="scraper" /><span><strong>Buscar noticias</strong><small>Abrir flujo editorial</small></span></button>
+            <button onClick={() => navigate("manual-news")}><NavIcon name="manual-news" /><span><strong>Crear noticia manual</strong><small>Redactar y publicar en múltiples destinos</small></span></button>
             <button onClick={() => void run("snapshot.refresh", {})}><NavIcon name="queue" /><span><strong>Sincronizar estado</strong><small>Actualizar datos locales</small></span></button>
             <button onClick={() => void run("automation.restart", {})}><NavIcon name="automation" /><span><strong>Reiniciar runtime</strong><small>Restablecer workers</small></span></button>
           </div>
@@ -639,6 +642,7 @@ function HealthRow({ label, value, good }: { label: string; value: string; good:
 function NavIcon({ name }: { name: IconName }) {
   const paths: Record<IconName, string> = {
     home: "M3 10.8 12 3l9 7.8V21a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1Z",
+    "manual-news": "M5 3h10l4 4v14H5zM15 3v5h5M9 13h6M12 10v6",
     news: "M4 4h16v16H4zM8 8h8M8 12h8M8 16h5",
     scraper: "M4 6h16M7 12h10M10 18h4",
     video: "M4 5h12v14H4zM16 10l4-3v10l-4-3z",

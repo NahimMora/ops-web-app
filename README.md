@@ -73,6 +73,7 @@ El procedimiento exacto, validaciones y rollback están en [docs/DEPLOY_HOSTINGE
 
 - `Resumen`: estado de PC, runtime, trabajos activos y alertas.
 - `Scrapers`: titulares por fuente/todas y procesamiento de URLs deduplicadas.
+- `Publicación manual`: redacción con título, contenido, imagen, categoría y fuente; revisión y envío al pipeline multicanal habitual.
 - `Noticias`: carga, edición, guardado y publicación multicanal.
 - `Automatización`: start/stop/restart, jobs y pendientes de Instagram.
 - `Videos`: procesamiento por URL/lote, publicación y exportación directa a R2.

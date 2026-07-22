@@ -1,6 +1,12 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import type { CommandRecord } from "../../../packages/contracts/src/index";
+import {
+  buildManualNewsItem,
+  EMPTY_MANUAL_NEWS_DRAFT,
+  validateManualNewsDraft,
+  type ManualNewsDraft,
+} from "./manual-news";
 import {
   ArticleList,
   Card,
@@ -285,6 +291,156 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
         busy={publishBusy}
         onClose={() => setReviewOpen(false)}
         onConfirm={() => void handlePublish()}
+      />
+    </div>
+  );
+}
+
+export function ManualNews({ commands, snapshots, run }: ContentProps) {
+  const [draft, setDraft] = useState<ManualNewsDraft>({ ...EMPTY_MANUAL_NEWS_DRAFT });
+  const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
+  const [reviewItem, setReviewItem] = useState<ContentItem | null>(null);
+  const [publishCommandId, setPublishCommandId] = useState("");
+  const [formError, setFormError] = useState("");
+
+  const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
+  const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
+  const publishCommand = commands.find((command) => command.id === publishCommandId);
+  const preview = buildManualNewsItem(draft);
+
+  function update<K extends keyof ManualNewsDraft>(key: K, value: ManualNewsDraft[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setFormError("");
+  }
+
+  function review(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const error = validateManualNewsDraft(draft);
+    if (error) {
+      setFormError(error);
+      return;
+    }
+    if (!platforms.length) {
+      setFormError("Elegí al menos un destino de publicación.");
+      return;
+    }
+    if (platforms.includes("whatsapp") && !selectedGroups.length) {
+      setFormError("Elegí al menos un grupo para publicar en WhatsApp.");
+      return;
+    }
+    setReviewItem(buildManualNewsItem(draft));
+  }
+
+  async function publish() {
+    if (!reviewItem || !platforms.length) return;
+    setReviewItem(null);
+    const command = await run("news.publish", {
+      selectedIndices: [],
+      directNewsItems: [reviewItem],
+      platforms,
+      whatsappGroups: selectedGroups,
+      whatsappGroupSet: selectedGroupSet,
+      instagramEmojis: true,
+    }, "Publicación manual encolada");
+    if (command) setPublishCommandId(command.id);
+  }
+
+  function reset() {
+    setDraft({ ...EMPTY_MANUAL_NEWS_DRAFT });
+    setFormError("");
+    setReviewItem(null);
+    setPublishCommandId("");
+  }
+
+  return (
+    <div className="flow-page manual-news-page">
+      <div className="flow-steps manual-flow-steps" aria-label="Flujo de publicación manual">
+        <div className="active"><span>1</span><strong>Redactar y editar</strong></div>
+        <div className={draft.image.trim() ? "active" : ""}><span>2</span><strong>Procesar imagen</strong></div>
+        <div className={platforms.length ? "active" : ""}><span>3</span><strong>Publicar en destinos</strong></div>
+      </div>
+
+      <section className="manual-editor-grid">
+        <Card title="Nueva noticia" eyebrow="Carga manual">
+          <p className="card-intro">Completá la nota y revisá la vista previa. Al confirmar se enviará al mismo pipeline editorial que las demás noticias.</p>
+          <form onSubmit={review} noValidate>
+            <Field label="Título" hint={`${draft.title.length}/240 caracteres`}>
+              <input value={draft.title} onChange={(event) => update("title", event.target.value)} maxLength={240} placeholder="Título de la noticia" autoFocus />
+            </Field>
+            <Field label="Noticia" hint={`${draft.body.length}/50.000 caracteres · separá los párrafos con una línea en blanco`}>
+              <textarea className="manual-news-body" value={draft.body} onChange={(event) => update("body", event.target.value)} maxLength={50_000} rows={16} placeholder="Escribí el contenido completo de la noticia…" />
+            </Field>
+            <div className="grid two manual-meta-grid">
+              <Field label="Categoría">
+                <input value={draft.category} onChange={(event) => update("category", event.target.value)} maxLength={120} placeholder="Ej.: Política, Deportes, Salta" />
+              </Field>
+              <Field label="Fuente">
+                <input value={draft.source} onChange={(event) => update("source", event.target.value)} maxLength={200} placeholder="Nombre de la fuente" />
+              </Field>
+            </div>
+            <Field label="Imagen" hint="Usá una URL pública http/https. La PC local descargará, optimizará y comprimirá la imagen dentro del flujo habitual.">
+              <input type="url" inputMode="url" value={draft.image} onChange={(event) => update("image", event.target.value)} maxLength={2048} placeholder="https://ejemplo.com/imagen.jpg" />
+            </Field>
+            {formError && <div className="inline-error" role="alert">{formError}</div>}
+            <div className="actions manual-form-actions">
+              <button type="button" onClick={reset}>Limpiar formulario</button>
+              <button className="primary" type="submit" disabled={isActive(publishCommand)}>Revisar publicación</button>
+            </div>
+          </form>
+        </Card>
+
+        <Card title="Vista previa" eyebrow="Control editorial" className="manual-preview-card">
+          <div className="manual-preview-media">
+            {draft.image.trim()
+              ? <img src={draft.image.trim()} alt="Vista previa de la noticia" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+              : <div className="media-fallback">HS</div>}
+          </div>
+          <div className="manual-preview-copy">
+            <div className="article-meta"><span>{draft.category.trim() || "Sin categoría"}</span><time>{draft.source.trim() || "Sin fuente"}</time></div>
+            <h3>{draft.title.trim() || "El título aparecerá aquí"}</h3>
+            {preview.parrafos.length
+              ? <div className="article-body">{preview.parrafos.slice(0, 8).map((paragraph: string, index: number) => <p key={index}>{paragraph}</p>)}</div>
+              : <p className="manual-preview-empty">La vista previa del contenido aparecerá mientras escribís.</p>}
+            {preview.parrafos.length > 8 && <small className="muted">La noticia continúa con {preview.parrafos.length - 8} párrafos más.</small>}
+          </div>
+        </Card>
+      </section>
+
+      <Card title="Destinos de publicación" eyebrow="WordPress y redes" className="publication-controls manual-destinations">
+        <PlatformChooser selected={platforms} onChange={(next) => { setPlatforms(next); setFormError(""); }} />
+        {platforms.includes("whatsapp") && (
+          <WhatsAppSelector
+            snapshots={snapshots}
+            selectedIds={selectedGroupIds}
+            selectedSet={selectedGroupSet}
+            onSelectedIds={setSelectedGroupIds}
+            onSelectedSet={setSelectedGroupSet}
+            run={run}
+          />
+        )}
+        <div className="publish-footer">
+          <div><strong>1 noticia manual</strong><span>{platforms.length} destinos seleccionados</span></div>
+          <button className="primary publish-button" disabled={Boolean(validateManualNewsDraft(draft)) || !platforms.length || isActive(publishCommand) || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => {
+            const error = validateManualNewsDraft(draft);
+            if (error) setFormError(error);
+            else setReviewItem(buildManualNewsItem(draft));
+          }}>Revisar y publicar</button>
+        </div>
+        <Progress command={publishCommand} />
+        {publishCommand?.result && <><ResultSummary command={publishCommand} /><TechnicalDetails value={publishCommand.result} /></>}
+      </Card>
+
+      <ReviewModal
+        open={Boolean(reviewItem)}
+        title="Publicar noticia manual"
+        items={reviewItem ? [reviewItem] : []}
+        platforms={platforms}
+        groups={selectedGroups}
+        busy={isActive(publishCommand)}
+        onClose={() => setReviewItem(null)}
+        onConfirm={() => void publish()}
       />
     </div>
   );

@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { createReadStream, existsSync } from "node:fs";
+import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
@@ -18,9 +20,14 @@ import { randomToken, safeEqual, sanitizeForLog, sha256, tokenHash } from "./sec
 
 const idSchema = z.object({ id: z.string().min(1).max(200) });
 const snapshotSchema = z.object({ key: z.string().min(1).max(190), revision: z.number().int().min(0), schemaVersion: z.number().int().min(1).max(100).default(1), payload: z.unknown(), contentHash: z.string().regex(/^[a-f0-9]{64}$/), capturedAt: z.string().datetime() }).strict();
+const manualImageSchema = z.object({ dataUrl: z.string().min(1).max(4_300_000), fileName: z.string().min(1).max(200) }).strict();
+const manualImageIdSchema = z.object({ id: z.string().regex(/^[a-f0-9-]{36}\.(?:jpg|png|webp)$/) });
+const manualImageDir = join(tmpdir(), "holasalta-ops-manual-news-images");
+const manualImageMaxBytes = 3 * 1024 * 1024;
+const manualImageTtlMs = 7 * 24 * 60 * 60 * 1000;
 
 export async function createApp(repository: Repository) {
-  const app = Fastify({ logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie", "body.password", "body.leaseToken"] }, bodyLimit: 5 * 1024 * 1024, trustProxy: true, requestIdHeader: "x-request-id", genReqId: () => randomUUID() });
+  const app = Fastify({ logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie", "body.password", "body.leaseToken", "body.dataUrl"] }, bodyLimit: 5 * 1024 * 1024, trustProxy: true, requestIdHeader: "x-request-id", genReqId: () => randomUUID() });
   await app.register(cookie);
   await app.register(rateLimit, { global: false, max: 100, timeWindow: "1 minute" });
   await app.register(helmet, {
@@ -57,6 +64,28 @@ export async function createApp(repository: Repository) {
   });
   app.get("/api/snapshots", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; rep.send({ items: (await repository.listSnapshots()).map(withFreshness) }); });
   app.get("/api/snapshots/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const parsed = idSchema.safeParse(req.params); if (!parsed.success) return rep.code(400).send({ error: "INVALID_ID" }); const snapshot = await repository.getSnapshot(parsed.data.id); return snapshot ? rep.send(withFreshness(snapshot)) : rep.code(404).send({ error: "NOT_FOUND" }); });
+
+  app.post("/api/manual-news/images", { config: { rateLimit: { max: 20, timeWindow: "1 hour" } } }, async (req, rep) => {
+    const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
+    const parsed = manualImageSchema.safeParse(req.body);
+    if (!parsed.success) return rep.code(400).send({ error: "INVALID_IMAGE_UPLOAD" });
+    const decoded = decodeManualImage(parsed.data.dataUrl);
+    if (!decoded) return rep.code(400).send({ error: "INVALID_IMAGE", message: "La imagen debe ser JPG, PNG o WebP y pesar hasta 3 MB." });
+    await mkdir(manualImageDir, { recursive: true });
+    await cleanupManualImages();
+    const id = `${randomUUID()}.${decoded.extension}`;
+    await writeFile(join(manualImageDir, id), decoded.bytes, { flag: "wx" });
+    await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "manual_image.upload", targetType: "manual_image", targetId: id, result: "created", metadata: { bytes: decoded.bytes.length, mimeType: decoded.mimeType, originalName: parsed.data.fileName } });
+    rep.code(201).send({ id, url: `${config.appUrl}/api/manual-news/images/${id}`, mimeType: decoded.mimeType, sizeBytes: decoded.bytes.length });
+  });
+  app.get("/api/manual-news/images/:id", async (req, rep) => {
+    const parsed = manualImageIdSchema.safeParse(req.params);
+    if (!parsed.success) return rep.code(404).send({ error: "NOT_FOUND" });
+    const path = join(manualImageDir, parsed.data.id);
+    if (!existsSync(path)) return rep.code(404).send({ error: "NOT_FOUND" });
+    rep.type(manualImageMime(parsed.data.id)).header("X-Content-Type-Options", "nosniff");
+    return rep.send(createReadStream(path));
+  });
 
   app.post("/api/commands", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, rep) => {
     const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
@@ -126,3 +155,32 @@ function publicCommand(c: CommandInternal) {
   return publicValue;
 }
 function withFreshness(snapshot: SnapshotRecord) { const ageSeconds = Math.max(0, Math.floor((Date.now() - Date.parse(snapshot.capturedAt)) / 1000)); return { ...snapshot, ageSeconds, fresh: ageSeconds < 60 }; }
+
+function decodeManualImage(dataUrl: string): { bytes: Buffer; extension: "jpg" | "png" | "webp"; mimeType: string } | null {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) return null;
+  const bytes = Buffer.from(match[2]!, "base64");
+  if (!bytes.length || bytes.length > manualImageMaxBytes) return null;
+  const mimeType = match[1]!;
+  const valid = mimeType === "image/jpeg"
+    ? bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+    : mimeType === "image/png"
+      ? bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+      : bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  if (!valid) return null;
+  return { bytes, extension: mimeType === "image/jpeg" ? "jpg" : mimeType === "image/png" ? "png" : "webp", mimeType };
+}
+
+function manualImageMime(id: string) {
+  return id.endsWith(".png") ? "image/png" : id.endsWith(".webp") ? "image/webp" : "image/jpeg";
+}
+
+async function cleanupManualImages() {
+  const cutoff = Date.now() - manualImageTtlMs;
+  for (const name of await readdir(manualImageDir).catch(() => [])) {
+    if (!/^[a-f0-9-]{36}\.(?:jpg|png|webp)$/.test(name)) continue;
+    const path = join(manualImageDir, name);
+    const info = await stat(path).catch(() => null);
+    if (info?.isFile() && info.mtimeMs < cutoff) await unlink(path).catch(() => undefined);
+  }
+}

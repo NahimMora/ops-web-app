@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { articleAge, extractArticles, relativeAge } from "../apps/web/src/ui.js";
+import { pickDefaultGroupSet } from "../apps/web/src/content.js";
 
 describe("content presentation helpers", () => {
   it("extracts scraper results without exposing raw JSON as the primary UI", () => {
@@ -20,5 +21,12 @@ describe("content presentation helpers", () => {
     expect(articleAge({ fecha_texto: "hace 2 horas" }, now)).toBe("Hace 2 horas");
     expect(articleAge({ url: "https://example.com/2026/07/18/noticia" }, now)).toBe("Hace 1 día");
     expect(articleAge({ titulo: "Sin fecha" }, now)).toBe("Fecha no disponible");
+  });
+
+  it("prefers the saved default WhatsApp set and otherwise uses the first one", () => {
+    const sets = [{ id: "first", nombre: "Primero" }, { id: "default", nombre: "Predeterminado" }];
+    expect(pickDefaultGroupSet(sets)?.id).toBe("default");
+    expect(pickDefaultGroupSet(sets.slice(0, 1))?.id).toBe("first");
+    expect(pickDefaultGroupSet([])).toBeNull();
   });
 });

@@ -1,9 +1,11 @@
 /* eslint-disable react-refresh/only-export-components */
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent, type FormEvent } from "react";
 import type { CommandRecord } from "../../../packages/contracts/src/index";
+import { uploadManualNewsImage } from "./api";
 import {
   buildManualNewsItem,
-  EMPTY_MANUAL_NEWS_DRAFT,
+  createManualNewsDraft,
+  MANUAL_NEWS_CATEGORIES,
   validateManualNewsDraft,
   type ManualNewsDraft,
 } from "./manual-news";
@@ -297,13 +299,18 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
 }
 
 export function ManualNews({ commands, snapshots, run }: ContentProps) {
-  const [draft, setDraft] = useState<ManualNewsDraft>({ ...EMPTY_MANUAL_NEWS_DRAFT });
+  const [draft, setDraft] = useState<ManualNewsDraft>(() => createManualNewsDraft());
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
   const [reviewItem, setReviewItem] = useState<ContentItem | null>(null);
   const [publishCommandId, setPublishCommandId] = useState("");
   const [formError, setFormError] = useState("");
+  const [imageUploadError, setImageUploadError] = useState("");
+  const [imageUploadBusy, setImageUploadBusy] = useState(false);
+  const [imageDragging, setImageDragging] = useState(false);
+  const [imageFileName, setImageFileName] = useState("");
+  const imageInput = useRef<HTMLInputElement>(null);
 
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
   const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
@@ -317,6 +324,10 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
 
   function review(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (imageUploadBusy) {
+      setFormError("Esperá a que termine de subir la imagen.");
+      return;
+    }
     const error = validateManualNewsDraft(draft);
     if (error) {
       setFormError(error);
@@ -348,10 +359,43 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
   }
 
   function reset() {
-    setDraft({ ...EMPTY_MANUAL_NEWS_DRAFT });
+    setDraft(createManualNewsDraft());
     setFormError("");
+    setImageUploadError("");
+    setImageFileName("");
     setReviewItem(null);
     setPublishCommandId("");
+  }
+
+  async function selectImage(file?: File) {
+    if (!file) return;
+    setImageUploadError("");
+    if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+      setImageUploadError("Elegí una imagen JPG, PNG o WebP.");
+      return;
+    }
+    if (file.size > 3 * 1024 * 1024) {
+      setImageUploadError("La imagen no puede pesar más de 3 MB.");
+      return;
+    }
+    setImageUploadBusy(true);
+    try {
+      const dataUrl = await fileAsDataUrl(file);
+      const uploaded = await uploadManualNewsImage(dataUrl, file.name);
+      update("image", uploaded.url);
+      setImageFileName(file.name);
+    } catch (cause) {
+      setImageUploadError(cause instanceof Error ? cause.message : "No se pudo subir la imagen.");
+    } finally {
+      setImageUploadBusy(false);
+      if (imageInput.current) imageInput.current.value = "";
+    }
+  }
+
+  function dropImage(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setImageDragging(false);
+    void selectImage(event.dataTransfer.files[0]);
   }
 
   return (
@@ -373,15 +417,36 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
               <textarea className="manual-news-body" value={draft.body} onChange={(event) => update("body", event.target.value)} maxLength={50_000} rows={16} placeholder="Escribí el contenido completo de la noticia…" />
             </Field>
             <div className="grid two manual-meta-grid">
-              <Field label="Categoría">
-                <input value={draft.category} onChange={(event) => update("category", event.target.value)} maxLength={120} placeholder="Ej.: Política, Deportes, Salta" />
+              <Field label="Categoría" hint="Si no elegís una, el pipeline la clasifica según el título y el contenido.">
+                <select value={draft.category} onChange={(event) => update("category", event.target.value)}>
+                  <option value="">Automática</option>
+                  {MANUAL_NEWS_CATEGORIES.map((category) => <option value={category} key={category}>{category}</option>)}
+                </select>
               </Field>
-              <Field label="Fuente">
-                <input value={draft.source} onChange={(event) => update("source", event.target.value)} maxLength={200} placeholder="Nombre de la fuente" />
+              <Field label="Fuente" hint="Si queda vacía, se usará Redacción HolaSalta.">
+                <input value={draft.source} onChange={(event) => update("source", event.target.value)} maxLength={200} placeholder="Automática: Redacción HolaSalta" />
               </Field>
             </div>
-            <Field label="Imagen" hint="Usá una URL pública http/https. La PC local descargará, optimizará y comprimirá la imagen dentro del flujo habitual.">
-              <input type="url" inputMode="url" value={draft.image} onChange={(event) => update("image", event.target.value)} maxLength={2048} placeholder="https://ejemplo.com/imagen.jpg" />
+            <Field label="Imagen" hint="JPG, PNG o WebP de hasta 3 MB. El pipeline local la optimizará y comprimirá.">
+              <div
+                className={`manual-image-dropzone ${imageDragging ? "dragging" : ""} ${draft.image ? "has-image" : ""}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => !imageUploadBusy && imageInput.current?.click()}
+                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") imageInput.current?.click(); }}
+                onDragEnter={(event) => { event.preventDefault(); setImageDragging(true); }}
+                onDragOver={(event) => event.preventDefault()}
+                onDragLeave={() => setImageDragging(false)}
+                onDrop={dropImage}
+              >
+                <input ref={imageInput} className="manual-image-input" type="file" accept="image/jpeg,image/png,image/webp" onChange={(event) => void selectImage(event.target.files?.[0])} />
+                {imageUploadBusy
+                  ? <><span className="manual-upload-icon">↥</span><strong>Subiendo imagen…</strong><small>No cierres esta pantalla.</small></>
+                  : draft.image
+                    ? <><span className="manual-upload-icon">✓</span><strong>{imageFileName || "Imagen cargada"}</strong><small>Arrastrá otra imagen o hacé clic para reemplazarla.</small><button type="button" onClick={(event) => { event.stopPropagation(); update("image", ""); setImageFileName(""); }}>Quitar</button></>
+                    : <><span className="manual-upload-icon">＋</span><strong>Arrastrá una imagen aquí</strong><small>o hacé clic para elegirla desde tu equipo.</small></>}
+              </div>
+              {imageUploadError && <div className="inline-error" role="alert">{imageUploadError}</div>}
             </Field>
             {formError && <div className="inline-error" role="alert">{formError}</div>}
             <div className="actions manual-form-actions">
@@ -398,7 +463,7 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
               : <div className="media-fallback">HS</div>}
           </div>
           <div className="manual-preview-copy">
-            <div className="article-meta"><span>{draft.category.trim() || "Sin categoría"}</span><time>{draft.source.trim() || "Sin fuente"}</time></div>
+            <div className="article-meta"><span>{draft.category.trim() || "Categoría automática"}</span><time>{draft.source.trim() || "Redacción HolaSalta"}</time></div>
             <h3>{draft.title.trim() || "El título aparecerá aquí"}</h3>
             {preview.parrafos.length
               ? <div className="article-body">{preview.parrafos.slice(0, 8).map((paragraph: string, index: number) => <p key={index}>{paragraph}</p>)}</div>
@@ -422,7 +487,7 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
         )}
         <div className="publish-footer">
           <div><strong>1 noticia manual</strong><span>{platforms.length} destinos seleccionados</span></div>
-          <button className="primary publish-button" disabled={Boolean(validateManualNewsDraft(draft)) || !platforms.length || isActive(publishCommand) || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => {
+          <button className="primary publish-button" disabled={Boolean(validateManualNewsDraft(draft)) || imageUploadBusy || !platforms.length || isActive(publishCommand) || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => {
             const error = validateManualNewsDraft(draft);
             if (error) setFormError(error);
             else setReviewItem(buildManualNewsItem(draft));
@@ -598,6 +663,7 @@ export function WhatsAppSelector({
   const sets = normalizeSets(snapshots["whatsapp.group_sets"]?.payload);
   const [filter, setFilter] = useState("");
   const [setName, setSetName] = useState("");
+  const [editingGroups, setEditingGroups] = useState(false);
   const defaultApplied = useRef(false);
   const visible = groups.filter((group) => String(group.nombre ?? "").toLocaleLowerCase("es").includes(filter.toLocaleLowerCase("es")));
 
@@ -607,7 +673,7 @@ export function WhatsAppSelector({
       defaultApplied.current = true;
       return;
     }
-    const defaultSet = sets.find(isDefaultGroupSet);
+    const defaultSet = pickDefaultGroupSet(sets);
     if (!defaultSet) return;
     defaultApplied.current = true;
     onSelectedSet(defaultSet);
@@ -617,7 +683,10 @@ export function WhatsAppSelector({
   function chooseSet(id: string) {
     const set = sets.find((item) => String(item.id) === id) ?? null;
     onSelectedSet(set);
-    if (set) onSelectedIds(normalizeGroups(set).map((group) => String(group.id)));
+    if (set) {
+      onSelectedIds(normalizeGroups(set).map((group) => String(group.id)));
+      setEditingGroups(false);
+    }
   }
 
   async function saveSet() {
@@ -630,26 +699,34 @@ export function WhatsAppSelector({
   return (
     <section className="whatsapp-box">
       <div className="whatsapp-head">
-        <div><strong>Grupos de WhatsApp</strong><span>{selectedIds.length} seleccionados de {groups.length}</span></div>
-        <button onClick={() => void run("whatsapp.groups.extract", {}, "Actualización de grupos encolada")}>Actualizar desde WhatsApp</button>
+        <div><strong>Destino de WhatsApp</strong><span>{selectedSet ? `Conjunto: ${String(selectedSet.nombre)}` : `${selectedIds.length} grupos seleccionados`}</span></div>
+        <button onClick={() => setEditingGroups((current) => !current)}>{editingGroups ? "Listo" : "Editar grupos"}</button>
       </div>
-      <div className="whatsapp-controls">
+      <div className="whatsapp-controls saved-set-controls">
         <Field label="Conjunto guardado">
           <select value={selectedSet ? String(selectedSet.id) : ""} onChange={(event) => chooseSet(event.target.value)}>
-            <option value="">Selección manual</option>
+            <option value="" disabled>Elegí un conjunto</option>
             {sets.map((set) => <option value={String(set.id)} key={String(set.id)}>{String(set.nombre)}</option>)}
           </select>
         </Field>
-        <Field label="Buscar grupo"><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Nombre del grupo…" /></Field>
       </div>
-      <div className="group-list">
-        {visible.map((group) => {
-          const id = String(group.id);
-          return <label key={id} className={selectedIds.includes(id) ? "selected" : ""}><input type="checkbox" checked={selectedIds.includes(id)} onChange={() => { onSelectedSet(null); onSelectedIds(selectedIds.includes(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id]); }} /><span>{String(group.nombre)}</span></label>;
-        })}
-        {!visible.length && <Empty text="No hay grupos disponibles" detail="Usá “Actualizar desde WhatsApp” para sincronizarlos." />}
-      </div>
-      <div className="save-set"><input value={setName} onChange={(event) => setSetName(event.target.value)} placeholder="Nombre para guardar esta selección" /><button disabled={!setName.trim() || !selectedIds.length} onClick={() => void saveSet()}>Guardar conjunto</button></div>
+      {!sets.length && <div className="inline-warning">No hay conjuntos guardados. Tocá “Editar grupos” para crear el primero.</div>}
+      {editingGroups && (
+        <div className="whatsapp-editor">
+          <div className="whatsapp-editor-head">
+            <Field label="Buscar grupo"><input value={filter} onChange={(event) => setFilter(event.target.value)} placeholder="Nombre del grupo…" /></Field>
+            <button onClick={() => void run("whatsapp.groups.extract", {}, "Actualización de grupos encolada")}>Actualizar desde WhatsApp</button>
+          </div>
+          <div className="group-list">
+            {visible.map((group) => {
+              const id = String(group.id);
+              return <label key={id} className={selectedIds.includes(id) ? "selected" : ""}><input type="checkbox" checked={selectedIds.includes(id)} onChange={() => { onSelectedSet(null); onSelectedIds(selectedIds.includes(id) ? selectedIds.filter((item) => item !== id) : [...selectedIds, id]); }} /><span>{String(group.nombre)}</span></label>;
+            })}
+            {!visible.length && <Empty text="No hay grupos disponibles" detail="Usá “Actualizar desde WhatsApp” para sincronizarlos." />}
+          </div>
+          <div className="save-set"><input value={setName} onChange={(event) => setSetName(event.target.value)} placeholder="Nombre para guardar esta selección" /><button disabled={!setName.trim() || !selectedIds.length} onClick={() => void saveSet()}>Guardar conjunto</button></div>
+        </div>
+      )}
     </section>
   );
 }
@@ -720,12 +797,25 @@ function isDefaultGroupSet(set: ContentItem) {
   return /(^|[-_\s])(predeterminado|default)([-_\s]|$)/i.test(`${String(set.id ?? "")} ${String(set.nombre ?? "")}`);
 }
 
+export function pickDefaultGroupSet(sets: ContentItem[]) {
+  return sets.find(isDefaultGroupSet) ?? sets[0] ?? null;
+}
+
 function resolveSelectedGroups(groups: ContentItem[], selectedIds: string[], selectedSet: ContentItem | null) {
   const setGroups = normalizeGroups(selectedSet);
   return setGroups.length ? setGroups : groups.filter((group) => selectedIds.includes(String(group.id)));
 }
 function readView(key: string): ViewMode {
   return localStorage.getItem(key) === "compact" ? "compact" : "card";
+}
+
+function fileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("No se pudo leer la imagen."));
+    reader.onerror = () => reject(new Error("No se pudo leer la imagen."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function confirmed(message: string) {

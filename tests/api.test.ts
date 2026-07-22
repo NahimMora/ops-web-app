@@ -92,6 +92,30 @@ describe("HTTP API", () => {
     expect(commands.body.length).toBeGreaterThan(1_024);
   });
 
+  it("accepts authenticated manual-news images and serves them to the local pipeline", async () => {
+    const { password } = await fixture();
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "holasalta@acceso.com", password } });
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+    const payload = {
+      fileName: "noticia.png",
+      dataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zp78AAAAASUVORK5CYII=",
+    };
+
+    const rejected = await app!.inject({ method: "POST", url: "/api/manual-news/images", headers: { cookie }, payload });
+    expect(rejected.statusCode).toBe(403);
+
+    const uploaded = await app!.inject({ method: "POST", url: "/api/manual-news/images", headers: { cookie, "x-csrf-token": csrf }, payload });
+    expect(uploaded.statusCode).toBe(201);
+    expect(uploaded.json()).toMatchObject({ mimeType: "image/png", sizeBytes: 68 });
+
+    const imagePath = new URL(uploaded.json().url).pathname;
+    const image = await app!.inject({ method: "GET", url: imagePath });
+    expect(image.statusCode).toBe(200);
+    expect(image.headers["content-type"]).toContain("image/png");
+    expect(image.rawPayload.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

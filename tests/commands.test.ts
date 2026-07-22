@@ -6,6 +6,8 @@ describe("command contracts and crash policy", () => {
   it("rejects parser breakage inputs before reaching a scraper", () => {
     expect(commandPayloadSchemas["scraper.details"].safeParse({ source: "tn", urls: ["not-a-url"] }).success).toBe(false);
     expect(commandPayloadSchemas["scraper.details"].safeParse({ source: "unknown", urls: ["https://example.com/a"] }).success).toBe(false);
+    expect(commandPayloadSchemas["scraper.clear"].safeParse({ source: "all" }).success).toBe(true);
+    expect(commandPayloadSchemas["scraper.clear"].safeParse({ source: "unknown" }).success).toBe(false);
     expect(commandPayloadSchemas["xvideo.batch.create"].safeParse({ sourceUrls: [] }).success).toBe(false);
   });
 

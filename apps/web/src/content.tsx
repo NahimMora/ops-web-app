@@ -44,6 +44,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   const [titleCommandId, setTitleCommandId] = useState("");
   const [detailCommandId, setDetailCommandId] = useState("");
   const [publishCommandId, setPublishCommandId] = useState("");
+  const [clearCommandId, setClearCommandId] = useState("");
   const [selectedTitles, setSelectedTitles] = useState<number[]>([]);
   const [processed, setProcessed] = useState<ContentItem[]>([]);
   const [selectedProcessed, setSelectedProcessed] = useState<number[]>([]);
@@ -53,14 +54,22 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const hydratedDetails = useRef("");
   const finishedPublication = useRef("");
+  const finishedClear = useRef("");
 
-  const latestTitleCommand = commands.find((command) => {
+  const latestClearCommand = commands.find((command) => {
+    if (command.type !== "scraper.clear" || !isTerminalSuccess(command)) return false;
+    const clearedSource = String(command.payload.source || "");
+    return source === "all" || clearedSource === "all" || clearedSource === source;
+  });
+  const latestTitleCandidate = commands.find((command) => {
     if (source === "all") return command.type === "scraper.all.titles" && Boolean(command.result);
     return command.type === "scraper.titles" && command.payload.source === source && Boolean(command.result);
   });
-  const titleCommand = commands.find((command) => command.id === titleCommandId) ?? (!titleCommandId ? latestTitleCommand : undefined);
+  const titleCandidate = commands.find((command) => command.id === titleCommandId) ?? (!titleCommandId ? latestTitleCandidate : undefined);
+  const titleCommand = titleCandidate && (!latestClearCommand || Date.parse(titleCandidate.createdAt) > Date.parse(latestClearCommand.createdAt)) ? titleCandidate : undefined;
   const detailCommand = commands.find((command) => command.id === detailCommandId);
   const publishCommand = commands.find((command) => command.id === publishCommandId);
+  const clearCommand = commands.find((command) => command.id === clearCommandId);
 
   const titles = useMemo(
     () => extractArticles(titleCommand?.result).map((item) => ({ ...item, source: item.source || source })),
@@ -93,7 +102,19 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
     setSelectedProcessed([]);
   }, [publishCommand]);
 
+  useEffect(() => {
+    if (!clearCommand || clearCommand.id === finishedClear.current || !isTerminalSuccess(clearCommand)) return;
+    finishedClear.current = clearCommand.id;
+    setTitleCommandId("");
+    setDetailCommandId("");
+    setSelectedTitles([]);
+    setProcessed([]);
+    setSelectedProcessed([]);
+    setPublishCommandId("");
+  }, [clearCommand]);
+
   async function handleSearch() {
+    setClearCommandId("");
     setSelectedTitles([]);
     setProcessed([]);
     setSelectedProcessed([]);
@@ -103,6 +124,13 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
       ? await run("scraper.all.titles", { maxArticlesPerSource: Math.min(max, 50) }, "Búsqueda en todas las fuentes encolada")
       : await run("scraper.titles", { source, maxArticles: max }, `Búsqueda de ${sourceLabel(source)} encolada`);
     if (command) setTitleCommandId(command.id);
+  }
+
+  async function handleClear() {
+    const target = source === "all" ? "todas las fuentes" : sourceLabel(source);
+    if (!confirmed(`¿Limpiar títulos e historial de ${target}? Las noticias preparadas no se borrarán.`)) return;
+    const command = await run("scraper.clear", { source }, `Limpieza de ${target} encolada`);
+    if (command) setClearCommandId(command.id);
   }
 
   async function handlePrepare() {
@@ -139,6 +167,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   const searchBusy = isActive(titleCommand);
   const processBusy = isActive(detailCommand);
   const publishBusy = isActive(publishCommand);
+  const clearBusy = isActive(clearCommand);
 
   return (
     <div className="flow-page">
@@ -156,6 +185,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
             <select value={source} onChange={(event) => {
               setSource(event.target.value);
               setTitleCommandId("");
+              setClearCommandId("");
               setDetailCommandId("");
               setSelectedTitles([]);
               setProcessed([]);
@@ -170,10 +200,14 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
           <Field label="Filtrar resultados">
             <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por título o medio…" />
           </Field>
-          <button className="primary toolbar-submit" disabled={searchBusy || processBusy} onClick={() => void handleSearch()}>
+          <button className="danger-ghost toolbar-submit" disabled={clearBusy || searchBusy || processBusy} onClick={() => void handleClear()}>
+            {clearBusy ? "Limpiando…" : source === "all" ? "Limpiar todas" : "Limpiar esta fuente"}
+          </button>
+          <button className="primary toolbar-submit" disabled={clearBusy || searchBusy || processBusy} onClick={() => void handleSearch()}>
             {searchBusy ? "Buscando…" : "Buscar noticias"}
           </button>
         </div>
+        <Progress command={clearCommand} />
         <Progress command={titleCommand} />
         {titles.length > 0 && (
           <SelectionBar

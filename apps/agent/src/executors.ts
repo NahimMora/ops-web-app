@@ -25,6 +25,7 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
     }
     case "scraper.titles": return ok(await api.post(`${scraperRoutes[p.source]}/titles`, { max_articles: p.maxArticles }, 5 * 60_000));
     case "scraper.details": return ok(await api.post(`${scraperRoutes[p.source]}/details`, { urls: p.urls }, 20 * 60_000));
+    case "scraper.clear": return ok(await api.post("/api/scraper-all/clear", { source: p.source }, 30_000));
     case "scraper.all.titles": return ok(await api.post("/api/scraper-all/titles", { max_articles_per_source: p.maxArticlesPerSource }, 10 * 60_000));
     case "scraper.all.details": return ok(await api.post("/api/scraper-all/details", { items: p.items }, 30 * 60_000));
     case "news.load_wordpress": {

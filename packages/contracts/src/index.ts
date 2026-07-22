@@ -27,6 +27,7 @@ export const commandPayloadSchemas = {
   "snapshot.refresh": z.object({ keys: z.array(z.string().min(1).max(100)).max(20).optional() }).strict(),
   "scraper.titles": z.object({ source: scraperSourceSchema, maxArticles: z.number().int().min(1).max(100).default(20) }).strict(),
   "scraper.details": z.object({ source: scraperSourceSchema, urls: z.array(z.string().url()).min(1).max(100) }).strict(),
+  "scraper.clear": z.object({ source: z.union([z.literal("all"), scraperSourceSchema]) }).strict(),
   "scraper.all.titles": z.object({ maxArticlesPerSource: z.number().int().min(1).max(50).default(10) }).strict(),
   "scraper.all.details": z.object({ items: z.array(z.object({ source: z.string().min(1).max(50), url: z.string().url() })).min(1).max(300) }).strict(),
   "news.load_wordpress": z.object({ perPage: z.number().int().min(1).max(100).default(100) }).strict(),

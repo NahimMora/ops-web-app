@@ -174,6 +174,7 @@ export function commandLabel(type: string) {
     "snapshot.refresh": "Sincronizar estado",
     "scraper.titles": "Buscar titulares",
     "scraper.details": "Preparar artículos",
+    "scraper.clear": "Limpiar scraper",
     "scraper.all.titles": "Buscar en todas las fuentes",
     "scraper.all.details": "Preparar selección combinada",
     "news.load_wordpress": "Traer desde WordPress",

@@ -130,6 +130,36 @@ const migrations: Array<{ version: number; name: string; statements: string[] }>
       INDEX idx_audit_created (created_at), INDEX idx_audit_actor (actor_type, actor_id)
     ) ENGINE=InnoDB`,
   ],
+}, {
+  version: 2,
+  name: "temporary_media_uploads",
+  statements: [
+    `CREATE TABLE IF NOT EXISTS temporary_media_uploads (
+      id CHAR(36) PRIMARY KEY,
+      created_by CHAR(36) NOT NULL,
+      object_key VARCHAR(500) NOT NULL UNIQUE,
+      file_name VARCHAR(200) NOT NULL,
+      content_type VARCHAR(100) NOT NULL,
+      expected_size_bytes BIGINT UNSIGNED NOT NULL,
+      actual_size_bytes BIGINT UNSIGNED NULL,
+      etag VARCHAR(190) NULL,
+      status VARCHAR(40) NOT NULL,
+      title VARCHAR(180) NOT NULL DEFAULT '',
+      caption TEXT NOT NULL,
+      quality VARCHAR(20) NOT NULL,
+      text_mode VARCHAR(20) NOT NULL,
+      command_id CHAR(36) NULL,
+      error_message TEXT NULL,
+      expires_at DATETIME(3) NOT NULL,
+      consumed_at DATETIME(3) NULL,
+      created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+      updated_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) ON UPDATE CURRENT_TIMESTAMP(3),
+      INDEX idx_temp_upload_status_expiry (status, expires_at),
+      INDEX idx_temp_upload_user (created_by, created_at),
+      CONSTRAINT fk_temp_upload_user FOREIGN KEY (created_by) REFERENCES users(id),
+      CONSTRAINT fk_temp_upload_command FOREIGN KEY (command_id) REFERENCES commands(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB`,
+  ],
 }];
 
 export async function runMigrations(pool: Pool): Promise<void> {

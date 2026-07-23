@@ -22,6 +22,15 @@ const envSchema = z.object({
   OPS_SESSION_TTL_HOURS: z.coerce.number().int().min(1).max(168).default(12),
   OPS_COMMAND_RETENTION_DAYS: z.coerce.number().int().min(7).max(3650).default(90),
   OPS_LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
+  OPS_UPLOAD_R2_ACCESS_KEY_ID: z.string().default(""),
+  OPS_UPLOAD_R2_SECRET_ACCESS_KEY: z.string().default(""),
+  OPS_UPLOAD_R2_ACCOUNT_ID: z.string().default(""),
+  OPS_UPLOAD_R2_S3_ENDPOINT: z.string().url().optional(),
+  OPS_UPLOAD_R2_BUCKET: z.string().default(""),
+  OPS_UPLOAD_R2_REGION: z.string().default("auto"),
+  OPS_UPLOAD_R2_PREFIX: z.string().regex(/^[a-zA-Z0-9/_-]+$/).default("ops/xvideo-uploads"),
+  OPS_UPLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+  OPS_UPLOAD_RETENTION_HOURS: z.coerce.number().int().min(1).max(168).default(24),
 });
 
 const raw = envSchema.parse(process.env);
@@ -55,4 +64,14 @@ export const config = {
   sessionTtlMs: raw.OPS_SESSION_TTL_HOURS * 60 * 60 * 1000,
   commandRetentionDays: raw.OPS_COMMAND_RETENTION_DAYS,
   logLevel: raw.OPS_LOG_LEVEL,
+  uploadR2: {
+    accessKeyId: raw.OPS_UPLOAD_R2_ACCESS_KEY_ID,
+    secretAccessKey: raw.OPS_UPLOAD_R2_SECRET_ACCESS_KEY,
+    endpoint: raw.OPS_UPLOAD_R2_S3_ENDPOINT || (raw.OPS_UPLOAD_R2_ACCOUNT_ID ? `https://${raw.OPS_UPLOAD_R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : ""),
+    bucket: raw.OPS_UPLOAD_R2_BUCKET,
+    region: raw.OPS_UPLOAD_R2_REGION,
+    prefix: raw.OPS_UPLOAD_R2_PREFIX.replace(/^\/+|\/+$/g, ""),
+    urlTtlSeconds: raw.OPS_UPLOAD_URL_TTL_SECONDS,
+    retentionMs: raw.OPS_UPLOAD_RETENTION_HOURS * 60 * 60 * 1000,
+  },
 };

@@ -9,6 +9,8 @@ describe("command contracts and crash policy", () => {
     expect(commandPayloadSchemas["scraper.clear"].safeParse({ source: "all" }).success).toBe(true);
     expect(commandPayloadSchemas["scraper.clear"].safeParse({ source: "unknown" }).success).toBe(false);
     expect(commandPayloadSchemas["xvideo.batch.create"].safeParse({ sourceUrls: [] }).success).toBe(false);
+    expect(commandPayloadSchemas["xvideo.create_upload"].safeParse({ uploadId: "c73aac2d-89af-4dc3-bbb2-7cf2ab789de1" }).success).toBe(true);
+    expect(commandPayloadSchemas["xvideo.create_upload"].safeParse({ uploadId: "not-a-uuid" }).success).toBe(false);
   });
 
   it("serializes publication resources that could duplicate output", () => {

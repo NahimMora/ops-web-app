@@ -24,6 +24,8 @@ async function processLoop() {
           progress: async (nextStage, nextProgress, nextLocalJobId) => { stage = nextStage; progress = nextProgress; localJobId = nextLocalJobId ?? localJobId; await ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId); },
           sideEffect: async () => { if (!sideEffect) { await ops.sideEffect(command.id, leaseToken); sideEffect = true; } },
           refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
+          getTemporaryMediaUpload: (id) => ops.temporaryMediaUpload(id),
+          completeTemporaryMediaUpload: (id, received, errorMessage) => ops.completeTemporaryMediaUpload(id, received, errorMessage),
         });
         const refreshKeys = snapshotKeysAfter(command.type);
         if (refreshKeys.length) {

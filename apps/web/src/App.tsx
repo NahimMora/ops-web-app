@@ -11,6 +11,9 @@ import {
   getDashboard,
   login,
   logout,
+  createTemporaryVideoUpload,
+  finalizeTemporaryVideoUpload,
+  putTemporaryVideo,
   retryCommand,
   setupTotp,
 } from "./api";
@@ -351,6 +354,10 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
   const [caption, setCaption] = useState("");
   const [quality, setQuality] = useState("normal");
   const [textMode, setTextMode] = useState("auto");
+  const [localFile, setLocalFile] = useState<File | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadState, setUploadState] = useState("");
+  const [uploadError, setUploadError] = useState("");
   const [batch, setBatch] = useState("");
   const [batchAction, setBatchAction] = useState("process");
   const [platforms, setPlatforms] = useState<string[]>(["facebook", "instagram", "x"]);
@@ -372,6 +379,39 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
     }
   }
 
+  async function createFromFile() {
+    if (!localFile) return;
+    setUploadError("");
+    setUploadProgress(0);
+    try {
+      if (localFile.size <= 0 || localFile.size > 250 * 1024 * 1024) throw new Error("El video debe pesar entre 1 byte y 250 MB.");
+      const contentType = videoMime(localFile);
+      if (!contentType) throw new Error("Usá un archivo MP4, MOV, M4V o WebM válido.");
+      setUploadState("Creando carga segura");
+      const ticket = await createTemporaryVideoUpload({
+        fileName: localFile.name,
+        contentType,
+        sizeBytes: localFile.size,
+        title,
+        caption,
+        quality: quality as "borrador" | "rapido" | "normal",
+        textMode: textMode as "auto" | "manual" | "disabled",
+      });
+      setUploadState("Subiendo directamente a R2");
+      await putTemporaryVideo(ticket, localFile, setUploadProgress);
+      setUploadProgress(100);
+      setUploadState("Validando y encolando");
+      await finalizeTemporaryVideoUpload(ticket.uploadId);
+      setUploadState("Carga encolada para procesamiento");
+      setLocalFile(null);
+      setTitle("");
+      setCaption("");
+    } catch (error) {
+      setUploadState("");
+      setUploadError(error instanceof Error ? error.message : "No se pudo cargar el video.");
+    }
+  }
+
   async function createBatch() {
     const sourceUrls = uniqueLines(batch);
     if (!sourceUrls.length) return;
@@ -389,8 +429,16 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
   return (
     <div className="flow-page">
       <section className="grid two">
-        <Card title="Nuevo video desde URL" eyebrow="X, YouTube o R2">
+        <Card title="Nuevo video" eyebrow="X, YouTube, R2 o archivo local">
           <Field label="URL de origen"><input value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://…" /></Field>
+          <div className="source-divider"><span>o cargá desde este dispositivo</span></div>
+          <Field label="Archivo MP4, MOV, M4V o WebM (máx. 250 MB)">
+            <input
+              type="file"
+              accept=".mp4,.mov,.m4v,.webm,video/mp4,video/quicktime,video/x-m4v,video/webm"
+              onChange={(event) => setLocalFile(event.target.files?.[0] ?? null)}
+            />
+          </Field>
           <div className="grid two form-grid">
             <Field label="Calidad">
               <select value={quality} onChange={(event) => setQuality(event.target.value)}><option value="borrador">Borrador</option><option value="rapido">Rápido</option><option value="normal">Normal</option></select>
@@ -401,7 +449,17 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
           </div>
           <Field label="Título"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={180} /></Field>
           <Field label="Caption"><textarea rows={5} value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} /></Field>
-          <button className="primary wide" disabled={!url.trim()} onClick={() => void createSingle()}>Procesar video</button>
+          <div className="grid two form-grid">
+            <button className="primary wide" disabled={!url.trim() || Boolean(localFile)} onClick={() => void createSingle()}>Procesar URL</button>
+            <button className="primary wide" disabled={!localFile || Boolean(url.trim()) || Boolean(uploadState && uploadProgress < 100)} onClick={() => void createFromFile()}>Cargar archivo</button>
+          </div>
+          {uploadState && (
+            <div className="upload-progress" role="status">
+              <span>{uploadState}</span>
+              <progress max={100} value={uploadProgress} />
+            </div>
+          )}
+          {uploadError && <div className="inline-error">{uploadError}</div>}
         </Card>
 
         <Card title="Lote desde URLs" eyebrow="Hasta 100 videos">
@@ -479,10 +537,20 @@ function VideoJobCard({ job, selected, onSelected, platforms, groups, groupSet, 
     <article className={`video-card ${selected ? "selected" : ""}`}>
       <button className="article-select" onClick={onSelected}><span>{selected ? "✓" : ""}</span></button>
       <div className="video-card-head"><Badge status={String(job.status ?? "unknown")} /><small>{shortDate(job.updated_at ?? job.created_at)}</small></div>
+      {job.preview_url
+        && job.preview_upload_status === "ready"
+        && Number(job.preview_revision) === Number(job.render_revision)
+        && <video className="video-preview" src={String(job.preview_url)} controls playsInline preload="metadata" />}
+      {job.preview_upload_status && job.preview_upload_status !== "ready" && (
+        <div className={job.preview_upload_status === "error" ? "inline-warning" : "preview-state"}>
+          Preview: {statusLabel(String(job.preview_upload_status))}
+          {job.preview_error ? ` · ${String(job.preview_error)}` : ""}
+        </div>
+      )}
       <Field label="Título"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={180} /></Field>
       <Field label="Caption"><textarea rows={4} value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} /></Field>
       <div className="actions">
-        <button onClick={() => void run("xvideo.update", { jobId: id, title, caption }, "Edición de video encolada")}>Guardar texto</button>
+        <button onClick={() => void run("xvideo.update", { jobId: id, title, caption }, job.preview_upload_status === "error" ? "Reintento de preview encolado" : "Edición de video encolada")}>{job.preview_upload_status === "error" ? "Reintentar preview" : "Guardar texto"}</button>
         <button disabled={!ready} onClick={() => void run("xvideo.share_test", { jobId: id }, "Prueba de WhatsApp encolada")}>Grupo de prueba</button>
         <button className="primary" disabled={!canPublish} onClick={() => void run("xvideo.publish", { jobId: id, platforms, title, caption, whatsappGroups: groups, whatsappGroupSet: groupSet }, "Publicación de video encolada")}>Publicar</button>
         <button disabled={!ready} onClick={() => void run("xvideo.export_r2", { jobId: id, filename: `${id}.mp4` }, "Exportación a R2 encolada")}>Subir a R2</button>
@@ -663,6 +731,19 @@ function normalizeItems(value: unknown): ContentItem[] {
 
 function uniqueLines(value: string) {
   return [...new Set(value.split(/\r?\n/).map((item) => item.trim()).filter(Boolean))];
+}
+
+function videoMime(file: File): "video/mp4" | "video/quicktime" | "video/x-m4v" | "video/webm" | null {
+  const declared = file.type.split(";")[0]!.trim().toLowerCase();
+  if (["video/mp4", "video/quicktime", "video/x-m4v", "video/webm"].includes(declared)) {
+    return declared as "video/mp4" | "video/quicktime" | "video/x-m4v" | "video/webm";
+  }
+  const extension = file.name.toLowerCase().split(".").pop();
+  return extension === "webm" ? "video/webm"
+    : extension === "mov" ? "video/quicktime"
+      : extension === "m4v" ? "video/x-m4v"
+        : extension === "mp4" ? "video/mp4"
+          : null;
 }
 
 function isObject(value: unknown): value is ContentItem {

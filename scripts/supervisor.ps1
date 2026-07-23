@@ -1,7 +1,21 @@
 $ErrorActionPreference = "Stop"
 $OpsRoot = Split-Path -Parent $PSScriptRoot
 $AgentConfig = Join-Path $OpsRoot ".secrets\agent.env"
-$BackendLauncher = "D:\WebApp_HolaSalta\backend\start_backend.bat"
+
+function Get-EnvValue([string]$Path, [string]$Name) {
+  if (-not (Test-Path -LiteralPath $Path)) { return $null }
+  $line = Select-String -LiteralPath $Path -Pattern ("^\s*{0}\s*=" -f [regex]::Escape($Name)) -ErrorAction SilentlyContinue | Select-Object -First 1
+  if (-not $line) { return $null }
+  $value = ($line.Line -replace ("^\s*{0}\s*=\s*" -f [regex]::Escape($Name)), "").Trim()
+  return $value.Trim('"').Trim("'")
+}
+
+$BackendEnvPath = Get-EnvValue -Path $AgentConfig -Name "OPS_LOCAL_BACKEND_ENV_PATH"
+if (-not $BackendEnvPath) { throw "OPS_LOCAL_BACKEND_ENV_PATH no esta definido en .secrets\agent.env." }
+$BackendRoot = Split-Path -Parent $BackendEnvPath
+$BackendLauncher = Join-Path $BackendRoot "start_backend.bat"
+$BackendPort = Get-EnvValue -Path $BackendEnvPath -Name "BACKEND_PORT"
+if (-not $BackendPort) { $BackendPort = "8000" }
 $AgentEntry = Join-Path $OpsRoot "dist\agent\main.js"
 $StateDir = Join-Path $OpsRoot "agent-state"
 $SupervisorLog = Join-Path $StateDir "supervisor.log"
@@ -27,7 +41,7 @@ function Get-BackendProcesses {
   return @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq "python.exe" -and
     $_.CommandLine -match "uvicorn\s+main:app" -and
-    $_.CommandLine -match "--port\s+8000"
+    $_.CommandLine -match ("--port\s+{0}" -f [regex]::Escape($BackendPort))
   })
 }
 
@@ -44,7 +58,7 @@ while ($true) {
   try {
     $backendReady = $false
     try {
-      $health = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8000/health" -TimeoutSec 4
+      $health = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/health" -f $BackendPort) -TimeoutSec 4
       $backendReady = $health.StatusCode -eq 200
     } catch { $backendReady = $false }
 
@@ -52,6 +66,7 @@ while ($true) {
       $backendProcesses = Get-BackendProcesses
       if ($backendProcesses.Count -eq 0) {
         Write-SafeLog "Backend local no disponible y sin proceso; iniciando."
+        $env:BACKEND_PORT = $BackendPort
         Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $BackendLauncher) -WindowStyle Hidden | Out-Null
       } elseif (-not $backendUnhealthyLogged) {
         Write-SafeLog "Backend local sin respuesta pero con proceso existente; no se inicia duplicado."

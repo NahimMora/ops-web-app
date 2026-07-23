@@ -6,6 +6,15 @@ const root = resolve(import.meta.dirname, "..");
 const secretsDir = resolve(root, ".secrets");
 const force = process.argv.includes("--force");
 
+const backendRootArg = process.argv.find((arg) => arg.startsWith("--backend-root="));
+const backendRoot = backendRootArg
+  ? resolve(backendRootArg.slice("--backend-root=".length))
+  : process.env.HOLASALTA_BACKEND_ROOT
+    ? resolve(process.env.HOLASALTA_BACKEND_ROOT)
+    : resolve(root, "..", "WebApp_HolaSalta");
+const backendEnvPath = resolve(backendRoot, "backend", ".env");
+const agentStateDir = resolve(root, "agent-state");
+
 async function exists(path) {
   try { await stat(path); return true; } catch { return false; }
 }
@@ -78,7 +87,7 @@ const hostinger = [
 ].join("\n");
 
 const agent = [
-  "# Solo PC local. El agente tambien carga D:\\WebApp_HolaSalta\\backend\\.env sin sobreescribir valores.",
+  "# Solo PC local. El agente tambien carga OPS_LOCAL_BACKEND_ENV_PATH sin sobreescribir valores.",
   "OPS_AGENT_SERVER_URL=https://ops.holasalta.com",
   "OPS_AGENT_ID=pc-holasalta-01",
   `OPS_AGENT_TOKEN=${agentToken}`,
@@ -86,8 +95,8 @@ const agent = [
   "OPS_AGENT_HEARTBEAT_MS=10000",
   "OPS_LOCAL_API_URL=http://127.0.0.1:8000",
   "OPS_LOCAL_API_USERNAME=admin",
-  "OPS_LOCAL_BACKEND_ENV_PATH=D:\\WebApp_HolaSalta\\backend\\.env",
-  "OPS_AGENT_STATE_DIR=D:\\Ops\\agent-state",
+  `OPS_LOCAL_BACKEND_ENV_PATH=${backendEnvPath}`,
+  `OPS_AGENT_STATE_DIR=${agentStateDir}`,
   "OPS_R2_VIDEO_PREFIX=ops/videos",
   "",
 ].join("\n");

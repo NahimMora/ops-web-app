@@ -18,7 +18,7 @@ rem    - Confirmar hPanel/phpMyAdmin
 rem
 rem  Editar estas variables si el repo/rama del backend cambia:
 set "BACKEND_REPO=NahimMora/HolaSaltaManager"
-set "BACKEND_BRANCH=feat/xvideo-ux-refactor"
+set "BACKEND_BRANCH=main"
 set "AGENT_ID=pc-holasalta-01"
 
 set "OPS_ROOT=%CD%"

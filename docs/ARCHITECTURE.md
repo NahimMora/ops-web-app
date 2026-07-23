@@ -8,7 +8,7 @@ La alternativa más factible y rentable es una arquitectura híbrida. Cloud Star
 
 | Componente | Ejecuta | No ejecuta |
 |---|---|---|
-| Hostinger | login, SPA, validación, MySQL, cola, leases, auditoría, snapshots | Playwright, ffmpeg, scraping, imágenes, video, publicación |
+| Hostinger | login, SPA, validación, MySQL, cola, leases, auditoría, snapshots y firma de PUT temporales R2 | Playwright, ffmpeg, scraping, render de imágenes/video, publicación |
 | Agente local | polling, heartbeats, adaptación de comandos, seguimiento, stream a R2 | interfaz pública, almacenamiento de sesiones web |
 | Backend actual | lógica existente, navegadores, scraping, media, redes | exposición pública |
 | MySQL | usuarios, sesiones hasheadas, agentes, comandos, eventos, locks, snapshots | secretos operativos locales |
@@ -23,6 +23,10 @@ La alternativa más factible y rentable es una arquitectura híbrida. Cloud Star
 5. El adaptador llama a `http://127.0.0.1:8000` con timeout explícito.
 6. Si la API local crea un job, el agente guarda `localJobId` y consulta hasta estado terminal.
 7. Resultado, progreso y eventos vuelven a Hostinger; el navegador sólo lee Hostinger.
+
+Para una carga local de Videos X, el navegador pide a Hostinger una URL PUT
+prefirmada, sube el archivo directamente a R2 y finaliza la carga. Hostinger
+guarda un token R2 separado y limitado al bucket; nunca recibe el binario.
 
 ## Semántica de fallos
 

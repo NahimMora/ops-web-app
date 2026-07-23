@@ -83,6 +83,15 @@ const hostinger = [
   "OPS_SESSION_TTL_HOURS=12",
   "OPS_COMMAND_RETENTION_DAYS=90",
   "OPS_LOG_LEVEL=info",
+  "# R2 temporal: crear un token Object Read & Write separado y limitado al bucket de medios.",
+  "OPS_UPLOAD_R2_ACCESS_KEY_ID=REEMPLAZAR_CON_ACCESS_KEY_R2_RESTRINGIDA",
+  "OPS_UPLOAD_R2_SECRET_ACCESS_KEY=REEMPLAZAR_CON_SECRET_KEY_R2_RESTRINGIDA",
+  "OPS_UPLOAD_R2_ACCOUNT_ID=REEMPLAZAR_CON_ACCOUNT_ID_CLOUDFLARE",
+  "OPS_UPLOAD_R2_BUCKET=REEMPLAZAR_CON_BUCKET_R2",
+  "OPS_UPLOAD_R2_REGION=auto",
+  "OPS_UPLOAD_R2_PREFIX=ops/xvideo-uploads",
+  "OPS_UPLOAD_URL_TTL_SECONDS=900",
+  "OPS_UPLOAD_RETENTION_HOURS=24",
   "",
 ].join("\n");
 
@@ -98,6 +107,7 @@ const agent = [
   `OPS_LOCAL_BACKEND_ENV_PATH=${backendEnvPath}`,
   `OPS_AGENT_STATE_DIR=${agentStateDir}`,
   "OPS_R2_VIDEO_PREFIX=ops/videos",
+  "OPS_R2_PREVIEW_PREFIX=ops/xvideo-previews",
   "",
 ].join("\n");
 

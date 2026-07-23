@@ -6,7 +6,7 @@ Panel operativo remoto para `https://ops.holasalta.com`. Hostinger ejecuta una a
 
 - Acceso desde celular o computadora con email, contraseña, cookie segura, CSRF y TOTP opcional.
 - Ningún puerto de la PC queda expuesto a Internet. El agente consulta Hostinger por HTTPS cada 5 segundos.
-- Hostinger no procesa imágenes/videos, no ejecuta navegadores y no recibe credenciales de WordPress, R2 o redes.
+- Hostinger no procesa imágenes/videos ni ejecuta navegadores. Conserva únicamente un token R2 separado y limitado al bucket para firmar cargas temporales; las credenciales de WordPress, redes y publicación R2 permanecen en la PC.
 - Los videos se transmiten desde la API local directamente a Cloudflare R2 y quedan descargables desde `holasaltamedia.cc`.
 - MySQL conserva comandos, estados, auditoría y snapshots. Una caída eléctrica no pierde la cola.
 - Publicaciones con posible efecto externo no se reintentan automáticamente si el resultado quedó incierto.
@@ -60,7 +60,7 @@ El modo `memory` está prohibido automáticamente cuando `NODE_ENV=production`.
 ## Instalación real resumida
 
 1. Crear MySQL en Hostinger.
-2. Abrir `D:\Ops\.secrets\hostinger.env`, reemplazar sólo los tres valores `DB_*` y cargarlo en hPanel.
+2. Abrir `D:\Ops\.secrets\hostinger.env`, reemplazar los tres valores `DB_*` y las cuatro variables obligatorias `OPS_UPLOAD_R2_*`, y cargarlo en hPanel.
 3. Desplegar el repositorio como Node.js 22 con `npm ci && npm run build` y entrada `dist/server/main.js`.
 4. Conectar `ops.holasalta.com` y esperar SSL.
 5. En la PC ejecutar `powershell -ExecutionPolicy Bypass -File D:\Ops\scripts\install-agent-task.ps1`.

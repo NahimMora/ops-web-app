@@ -22,6 +22,10 @@ No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_
    - `DB_USER`.
    - `DB_PASSWORD`.
    - `DB_NAME`.
+   - `OPS_UPLOAD_R2_ACCESS_KEY_ID`.
+   - `OPS_UPLOAD_R2_SECRET_ACCESS_KEY`.
+   - `OPS_UPLOAD_R2_ACCOUNT_ID`.
+   - `OPS_UPLOAD_R2_BUCKET`.
 5. No crear tablas manualmente. `OPS_DB_AUTO_MIGRATE=true` ejecuta migraciones con un lock MySQL al primer arranque.
 
 ## 2. Crear la Node.js Web App
@@ -36,6 +40,10 @@ No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_
 8. Si solicita start command: `npm start`.
 9. Si se usa el framework `Other`, configurar Entry file `server.js` y Output directory `dist`.
 10. Importar variables desde el contenido ya corregido de `.secrets\hostinger.env`.
+
+Las variables `OPS_UPLOAD_R2_*` son obligatorias para la carga local de Videos
+X. Deben pertenecer a un token R2 separado con permiso Object Read & Write
+limitado al bucket de medios. Después de guardarlas, usar **Save and redeploy**.
 
 No definir `PORT`: Hostinger puede inyectarlo y la aplicación lo respeta. Si el asistente obliga a definirlo, usar el valor sugerido por hPanel.
 

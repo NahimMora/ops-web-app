@@ -17,7 +17,7 @@ Se protege contra acceso no autorizado al panel, robo del repo público, CSRF, f
 - SQL parametrizado; sólo DDL y queries constantes del repositorio.
 - Logs con redacción de authorization/cookie/password/token/secret/api key.
 - Timeouts en toda llamada HTTP; retries con backoff sólo donde son seguros.
-- R2 usa credenciales locales y upload multipart con intentos explícitos.
+- Las exportaciones y previews R2 usan credenciales locales. Hostinger usa un token R2 diferente, limitado al bucket, sólo para firmar, validar y limpiar cargas temporales.
 
 ## Secretos
 
@@ -28,7 +28,8 @@ Se protege contra acceso no autorizado al panel, robo del repo público, CSRF, f
 | Session/TOTP/pepper | variables hPanel | sí | no |
 | Token agente crudo | `.secrets\agent.env` | no | no |
 | HMAC token agente | variable hPanel/MySQL | sí | no |
-| R2/redes/WordPress | backend `.env` local | no | no |
+| R2 de publicación/previews, redes y WordPress | backend `.env` local | no | no |
+| R2 de cargas temporales | variables hPanel `OPS_UPLOAD_R2_*` | sí, token separado | no |
 | Credenciales MySQL | variables hPanel | sí | no |
 
 Después de guardar la contraseña inicial en un gestor, borrar el archivo temporal de credenciales. Restringir acceso NTFS a `D:\Ops\.secrets` y al `.env` actual al usuario operativo.

@@ -24,6 +24,48 @@ export const retryCommand = (id: string) => request<any>(`/api/commands/${encode
 export const setupTotp = () => request<{ secret: string; uri: string }>("/api/auth/totp/setup", { method: "POST", body: "{}" });
 export const enableTotp = (code: string) => request("/api/auth/totp/enable", { method: "POST", body: JSON.stringify({ code }) });
 export const uploadManualNewsImage = (dataUrl: string, fileName: string) => request<{ id: string; url: string; mimeType: string; sizeBytes: number }>("/api/manual-news/images", { method: "POST", body: JSON.stringify({ dataUrl, fileName }) });
+export type TemporaryVideoUploadRequest = {
+  fileName: string;
+  contentType: "video/mp4" | "video/quicktime" | "video/x-m4v" | "video/webm";
+  sizeBytes: number;
+  title: string;
+  caption: string;
+  quality: "borrador" | "rapido" | "normal";
+  textMode: "auto" | "manual" | "disabled";
+};
+export type TemporaryVideoUploadTicket = {
+  uploadId: string;
+  uploadUrl: string;
+  method: "PUT";
+  headers: Record<string, string>;
+  expiresAt: string;
+  retentionExpiresAt: string;
+  maxSizeBytes: number;
+};
+export const createTemporaryVideoUpload = (payload: TemporaryVideoUploadRequest) =>
+  request<TemporaryVideoUploadTicket>("/api/xvideo/uploads", { method: "POST", body: JSON.stringify(payload) });
+export const finalizeTemporaryVideoUpload = (uploadId: string) =>
+  request<any>(`/api/xvideo/uploads/${encodeURIComponent(uploadId)}/finalize`, { method: "POST", body: "{}" });
+export function putTemporaryVideo(
+  ticket: TemporaryVideoUploadTicket,
+  file: File,
+  onProgress: (percent: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open(ticket.method, ticket.uploadUrl);
+    for (const [name, value] of Object.entries(ticket.headers)) request.setRequestHeader(name, value);
+    request.upload.onprogress = (event) => {
+      if (event.lengthComputable) onProgress(Math.max(1, Math.min(99, Math.round((event.loaded / event.total) * 100))));
+    };
+    request.onerror = () => reject(new Error("No se pudo cargar el video a R2."));
+    request.onabort = () => reject(new Error("La carga del video fue cancelada."));
+    request.onload = () => request.status >= 200 && request.status < 300
+      ? resolve()
+      : reject(new Error(`R2 rechazó la carga (HTTP ${request.status}).`));
+    request.send(file);
+  });
+}
 
 export function createCommand(type: CommandType, payload: Record<string, unknown>, priority = 0): Promise<any> {
   const signature = `${type}:${JSON.stringify(payload)}`; const existing = inflight.get(signature); if (existing) return existing;

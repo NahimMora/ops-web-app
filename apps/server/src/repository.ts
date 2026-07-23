@@ -15,6 +15,14 @@ export interface CommandInternal extends CommandRecord {
 }
 export interface CommandEvent { id: string; commandId: string; eventType: string; level: string; message: string; metadata: unknown; createdAt: string; }
 export interface AuditRecord { id: string; actorType: string; actorId: string | null; action: string; targetType: string | null; targetId: string | null; result: string; metadata: unknown; createdAt: string; }
+export interface TemporaryMediaUploadRecord {
+  id: string; createdBy: string; objectKey: string; fileName: string; contentType: string;
+  expectedSizeBytes: number; actualSizeBytes: number | null; etag: string | null;
+  status: "created" | "uploaded" | "processing" | "consumed" | "cleanup_error" | "failed" | "expired";
+  title: string; caption: string; quality: string; textMode: string;
+  commandId: string | null; errorMessage: string | null; expiresAt: string;
+  createdAt: string; updatedAt: string; consumedAt: string | null;
+}
 export interface BootstrapInput { adminEmail: string; passwordHash: string; agentId: string; agentName: string; agentTokenHash: string; }
 export interface CreateCommandInput {
   id: string; type: CommandType; payload: Record<string, unknown>; payloadHash: string; idempotencyKey: string; priority: number;
@@ -53,6 +61,9 @@ export interface Repository {
   listSnapshots(): Promise<SnapshotRecord[]>;
   addAudit(input: Omit<AuditRecord, "id" | "createdAt">): Promise<void>;
   listAudit(limit: number): Promise<AuditRecord[]>;
+  createTemporaryMediaUpload(upload: Omit<TemporaryMediaUploadRecord, "createdAt" | "updatedAt" | "consumedAt">): Promise<TemporaryMediaUploadRecord>;
+  getTemporaryMediaUpload(id: string): Promise<TemporaryMediaUploadRecord | null>;
+  updateTemporaryMediaUpload(id: string, patch: Partial<Pick<TemporaryMediaUploadRecord, "actualSizeBytes" | "etag" | "status" | "commandId" | "errorMessage" | "consumedAt">>): Promise<TemporaryMediaUploadRecord | null>;
   reapExpired(now: string): Promise<number>;
 }
 
@@ -61,7 +72,7 @@ function clone<T>(value: T): T { return structuredClone(value); }
 
 export class MemoryRepository implements Repository {
   private users = new Map<string, UserRecord>(); private sessions = new Map<string, SessionRecord>(); private agents = new Map<string, AgentRecord>();
-  private commands = new Map<string, CommandInternal>(); private events: CommandEvent[] = []; private snapshots = new Map<string, SnapshotRecord>(); private audits: AuditRecord[] = [];
+  private commands = new Map<string, CommandInternal>(); private events: CommandEvent[] = []; private snapshots = new Map<string, SnapshotRecord>(); private audits: AuditRecord[] = []; private mediaUploads = new Map<string, TemporaryMediaUploadRecord>();
   async initialize(bootstrap: BootstrapInput): Promise<void> {
     const existing = [...this.users.values()].find((u) => u.email === bootstrap.adminEmail);
     if (!existing) this.users.set("bootstrap-admin", { id: "bootstrap-admin", email: bootstrap.adminEmail, displayName: "Administrador", passwordHash: bootstrap.passwordHash, role: "admin", status: "active", failedLoginCount: 0, lockedUntil: null, lastLoginAt: null, totpSecretEncrypted: null, totpEnabled: false });
@@ -112,7 +123,36 @@ export class MemoryRepository implements Repository {
   async listSnapshots() { return [...this.snapshots.values()].map(clone); }
   async addAudit(input: Omit<AuditRecord, "id" | "createdAt">) { this.audits.push({ ...clone(input), id: randomUUID(), createdAt: nowIso() }); }
   async listAudit(limit: number) { return this.audits.slice(-limit).reverse().map(clone); }
-  async reapExpired(now: string) { let count = 0; for (const c of this.commands.values()) { if (!["claimed", "running"].includes(c.status) || !c.leaseExpiresAt || c.leaseExpiresAt > now) continue; const outcome = expiredLeaseOutcome({ type: c.type, status: c.status, sideEffectStarted: c.sideEffectStarted, attemptCount: c.attemptCount, maxAttempts: c.maxAttempts }); Object.assign(c, { status: outcome, currentStage: "lease_expired", errorCode: "agent_lease_expired", errorMessage: outcome === "requires_attention" ? "La conexion se perdio despues de iniciar una operacion externa; requiere revision." : "La lease del agente vencio.", retryable: outcome === "queued", assignedAgentId: null, leaseTokenHash: null, leaseExpiresAt: null, completedAt: isTerminal(outcome) ? nowIso() : null, updatedAt: nowIso() }); count++; } return count; }
+  async createTemporaryMediaUpload(input: Omit<TemporaryMediaUploadRecord, "createdAt" | "updatedAt" | "consumedAt">) {
+    const now = nowIso();
+    const upload: TemporaryMediaUploadRecord = { ...clone(input), createdAt: now, updatedAt: now, consumedAt: null };
+    this.mediaUploads.set(upload.id, upload);
+    return clone(upload);
+  }
+  async getTemporaryMediaUpload(id: string) { return clone(this.mediaUploads.get(id) ?? null); }
+  async updateTemporaryMediaUpload(id: string, patch: Partial<Pick<TemporaryMediaUploadRecord, "actualSizeBytes" | "etag" | "status" | "commandId" | "errorMessage" | "consumedAt">>) {
+    const upload = this.mediaUploads.get(id);
+    if (!upload) return null;
+    Object.assign(upload, clone(patch), { updatedAt: nowIso() });
+    return clone(upload);
+  }
+  async reapExpired(now: string) {
+    let count = 0;
+    for (const c of this.commands.values()) {
+      if (!["claimed", "running"].includes(c.status) || !c.leaseExpiresAt || c.leaseExpiresAt > now) continue;
+      const outcome = expiredLeaseOutcome({ type: c.type, status: c.status, sideEffectStarted: c.sideEffectStarted, attemptCount: c.attemptCount, maxAttempts: c.maxAttempts });
+      Object.assign(c, { status: outcome, currentStage: "lease_expired", errorCode: "agent_lease_expired", errorMessage: outcome === "requires_attention" ? "La conexion se perdio despues de iniciar una operacion externa; requiere revision." : "La lease del agente vencio.", retryable: outcome === "queued", assignedAgentId: null, leaseTokenHash: null, leaseExpiresAt: null, completedAt: isTerminal(outcome) ? nowIso() : null, updatedAt: nowIso() });
+      count++;
+    }
+    for (const upload of this.mediaUploads.values()) {
+      if (upload.status === "created" && upload.expiresAt <= now) {
+        upload.status = "expired";
+        upload.errorMessage = "La carga expiró antes de finalizarse.";
+        upload.updatedAt = nowIso();
+      }
+    }
+    return count;
+  }
 }
 
 function normalizePatch(patch: UpdateInput): Partial<CommandInternal> {

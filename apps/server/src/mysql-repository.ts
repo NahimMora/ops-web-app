@@ -3,7 +3,7 @@ import mysql, { type Pool, type RowDataPacket } from "mysql2/promise";
 import type { CommandStatus, CommandType, SnapshotRecord } from "../../../packages/contracts/src/index.js";
 import { expiredLeaseOutcome, isTerminal } from "./command-state.js";
 import { runMigrations } from "./migrations.js";
-import type { AgentRecord, AuditRecord, BootstrapInput, CommandEvent, CommandInternal, CreateCommandInput, Repository, SessionRecord, UpdateInput, UserRecord } from "./repository.js";
+import type { AgentRecord, AuditRecord, BootstrapInput, CommandEvent, CommandInternal, CreateCommandInput, Repository, SessionRecord, TemporaryMediaUploadRecord, UpdateInput, UserRecord } from "./repository.js";
 
 type DbConfig = { host: string; port: number; user: string; password: string; database: string };
 type DbRow = RowDataPacket & Record<string, any>;
@@ -166,6 +166,49 @@ export class MySqlRepository implements Repository {
   async listSnapshots() { const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM snapshots ORDER BY snapshot_key", []); return rows.map(mapSnapshot); }
   async addAudit(a: Omit<AuditRecord, "id" | "createdAt">) { await this.pool.query("INSERT INTO audit_log (id,actor_type,actor_id,action,target_type,target_id,result,metadata_json) VALUES (?,?,?,?,?,?,?,?)", [randomUUID(), a.actorType, a.actorId, a.action, a.targetType, a.targetId, a.result, JSON.stringify(a.metadata)]); }
   async listAudit(limit: number) { const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?", [limit]); return rows.map(mapAudit); }
+  async createTemporaryMediaUpload(input: Omit<TemporaryMediaUploadRecord, "createdAt" | "updatedAt" | "consumedAt">) {
+    await this.pool.query(
+      `INSERT INTO temporary_media_uploads
+       (id,created_by,object_key,file_name,content_type,expected_size_bytes,actual_size_bytes,etag,status,title,caption,quality,text_mode,command_id,error_message,expires_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        input.id, input.createdBy, input.objectKey, input.fileName, input.contentType,
+        input.expectedSizeBytes, input.actualSizeBytes, input.etag, input.status,
+        input.title, input.caption, input.quality, input.textMode, input.commandId,
+        input.errorMessage, toDbDate(input.expiresAt),
+      ],
+    );
+    return (await this.getTemporaryMediaUpload(input.id))!;
+  }
+  async getTemporaryMediaUpload(id: string) {
+    const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM temporary_media_uploads WHERE id=? LIMIT 1", [id]);
+    return rows[0] ? mapTemporaryMediaUpload(rows[0]) : null;
+  }
+  async updateTemporaryMediaUpload(id: string, patch: Partial<Pick<TemporaryMediaUploadRecord, "actualSizeBytes" | "etag" | "status" | "commandId" | "errorMessage" | "consumedAt">>) {
+    const columns: Record<string, string> = {
+      actualSizeBytes: "actual_size_bytes",
+      etag: "etag",
+      status: "status",
+      commandId: "command_id",
+      errorMessage: "error_message",
+      consumedAt: "consumed_at",
+    };
+    const assignments: string[] = [];
+    const values: unknown[] = [];
+    for (const [field, column] of Object.entries(columns)) {
+      if (!Object.hasOwn(patch, field)) continue;
+      assignments.push(`${column}=?`);
+      const value = patch[field as keyof typeof patch];
+      values.push(field === "consumedAt" ? toDbDate(value as string | null | undefined) : value ?? null);
+    }
+    if (!assignments.length) return this.getTemporaryMediaUpload(id);
+    values.push(id);
+    await this.pool.query(
+      `UPDATE temporary_media_uploads SET ${assignments.join(",")},updated_at=UTC_TIMESTAMP(3) WHERE id=?`,
+      values,
+    );
+    return this.getTemporaryMediaUpload(id);
+  }
   async reapExpired(now: string) {
     const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE status IN ('claimed','running') AND lease_expires_at<=?", [toDbDate(now)]); let count = 0;
     for (const row of rows) {
@@ -176,7 +219,12 @@ export class MySqlRepository implements Repository {
       );
       await this.pool.query("DELETE FROM resource_locks WHERE command_id=?", [c.id]); count++;
     }
-    await this.pool.query("DELETE FROM resource_locks WHERE lease_expires_at<=?", [toDbDate(now)]); return count;
+    await this.pool.query("DELETE FROM resource_locks WHERE lease_expires_at<=?", [toDbDate(now)]);
+    await this.pool.query(
+      "UPDATE temporary_media_uploads SET status='expired',error_message='La carga expiró antes de finalizarse.' WHERE status='created' AND expires_at<=?",
+      [toDbDate(now)],
+    );
+    return count;
   }
   private async getOwned(id: string, hash: string) { const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE id=? AND lease_token_hash=? AND lease_expires_at>UTC_TIMESTAMP(3) AND status IN ('claimed','running') LIMIT 1", [id, hash]); return rows[0] ? mapCommand(rows[0]) : null; }
 }
@@ -189,4 +237,27 @@ function mapCommand(r: DbRow): CommandInternal { return { id: String(r.id), type
 function mapEvent(r: DbRow): CommandEvent { return { id: String(r.id), commandId: String(r.command_id), eventType: String(r.event_type), level: String(r.level), message: String(r.message), metadata: jsonParse(r.metadata_json, {}), createdAt: iso(r.created_at)! }; }
 function mapSnapshot(r: DbRow): SnapshotRecord { return { key: String(r.snapshot_key), revision: Number(r.revision), schemaVersion: Number(r.schema_version), payload: jsonParse(r.payload_json, {}), contentHash: String(r.content_hash), capturedAt: iso(r.captured_at)!, updatedAt: iso(r.updated_at)! }; }
 function mapAudit(r: DbRow): AuditRecord { return { id: String(r.id), actorType: String(r.actor_type), actorId: r.actor_id ? String(r.actor_id) : null, action: String(r.action), targetType: r.target_type ? String(r.target_type) : null, targetId: r.target_id ? String(r.target_id) : null, result: String(r.result), metadata: jsonParse(r.metadata_json, {}), createdAt: iso(r.created_at)! }; }
+function mapTemporaryMediaUpload(r: DbRow): TemporaryMediaUploadRecord {
+  return {
+    id: String(r.id),
+    createdBy: String(r.created_by),
+    objectKey: String(r.object_key),
+    fileName: String(r.file_name),
+    contentType: String(r.content_type),
+    expectedSizeBytes: Number(r.expected_size_bytes),
+    actualSizeBytes: r.actual_size_bytes == null ? null : Number(r.actual_size_bytes),
+    etag: r.etag ? String(r.etag) : null,
+    status: r.status,
+    title: String(r.title ?? ""),
+    caption: String(r.caption ?? ""),
+    quality: String(r.quality),
+    textMode: String(r.text_mode),
+    commandId: r.command_id ? String(r.command_id) : null,
+    errorMessage: r.error_message ? String(r.error_message) : null,
+    expiresAt: iso(r.expires_at)!,
+    createdAt: iso(r.created_at)!,
+    updatedAt: iso(r.updated_at)!,
+    consumedAt: iso(r.consumed_at),
+  };
+}
 function patchValues(p: UpdateInput) { const assignments: string[] = []; const params: unknown[] = []; const add = (sql: string, value: unknown) => { assignments.push(sql); params.push(value); }; if (p.currentStage !== undefined) add("current_stage=?", p.currentStage); if (p.progressPercent !== undefined) add("progress_percent=?", Math.max(0, Math.min(100, p.progressPercent))); if (p.localJobId !== undefined) add("local_job_id=?", p.localJobId); if (p.result !== undefined) add("result_json=?", JSON.stringify(p.result)); if (p.errorCode !== undefined) add("error_code=?", p.errorCode); if (p.errorMessage !== undefined) add("error_message=?", p.errorMessage.slice(0, 2000)); if (p.retryable !== undefined) add("retryable=?", p.retryable ? 1 : 0); return { assignments, params }; }

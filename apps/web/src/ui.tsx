@@ -68,7 +68,14 @@ export function articleUrl(item: ContentItem) {
 }
 
 export function articleImage(item: ContentItem) {
-  return String(item.imagen_optimizada ?? item.imagen ?? item.image ?? item.thumbnail ?? "").trim();
+  return String(
+    item.preview_image_url
+    ?? item.imagen_optimizada
+    ?? item.imagen
+    ?? item.image
+    ?? item.thumbnail
+    ?? "",
+  ).trim();
 }
 
 export function articleExcerpt(item: ContentItem) {
@@ -165,6 +172,10 @@ export function statusLabel(status: string) {
     healthy: "Saludable",
     ready: "Listo",
     processing: "Procesando",
+    pending: "Pendiente",
+    uploading: "Subiendo",
+    error: "Error recuperable",
+    cleanup_error: "Limpieza pendiente",
     offline: "Desconectado",
   } as Record<string, string>)[status] ?? status;
 }
@@ -192,6 +203,7 @@ export function commandLabel(type: string) {
     "whatsapp.groups.extract": "Actualizar grupos de WhatsApp",
     "whatsapp.group_set.save": "Guardar conjunto de WhatsApp",
     "xvideo.create_url": "Procesar video",
+    "xvideo.create_upload": "Procesar video cargado",
     "xvideo.update": "Editar video",
     "xvideo.share_test": "Enviar video al grupo de prueba",
     "xvideo.batch.create": "Procesar lote de videos",
@@ -308,14 +320,15 @@ export function ArticleList({
         const checked = selected.includes(index);
         const image = articleImage(item);
         const body = articleBody(item);
-        const bodyRows = Math.max(8, body.split("\n").length + Math.ceil(body.length / 85));
         return (
           <article key={`${articleUrl(item) || articleTitle(item)}-${index}`} className={`${checked ? "selected" : ""} ${editable ? "editable" : ""}`.trim()}>
             <button className="article-select" onClick={() => onToggle(index)} aria-label={checked ? "Quitar selección" : "Seleccionar"}>
               <span>{checked ? "✓" : ""}</span>
             </button>
             <div className="article-media">
-              {image ? <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} /> : <div className="media-fallback">{sourceLabel(item.source).slice(0, 2).toUpperCase()}</div>}
+              {image
+                ? <a className="article-image-link" href={image} target="_blank" rel="noreferrer" title="Ampliar imagen" onClick={(event) => event.stopPropagation()}><img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} /></a>
+                : <div className="media-fallback">{sourceLabel(item.source).slice(0, 2).toUpperCase()}</div>}
             </div>
             <div className="article-copy">
               <div className="article-meta"><span>{sourceLabel(item.source)}</span><time>{articleAge(item)}</time></div>
@@ -323,7 +336,7 @@ export function ArticleList({
                 <>
                   <input className="article-title-input" value={articleTitle(item)} onChange={(event) => onChange?.(index, { ...item, titulo: event.target.value })} />
                   <label className="article-editor-field"><span>Extracto</span><textarea value={articleExcerpt(item)} rows={3} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value })} /></label>
-                  <label className="article-editor-field"><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={bodyRows} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value) })} /></label>
+                  <label className="article-editor-field"><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={10} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value) })} /></label>
                 </>
               ) : (
                 <>

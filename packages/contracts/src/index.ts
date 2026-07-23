@@ -56,6 +56,9 @@ export const commandPayloadSchemas = {
     quality: z.enum(["borrador", "rapido", "normal"]).default("normal"),
     textMode: z.enum(["auto", "manual", "disabled"]).default("auto"),
   }).strict(),
+  "xvideo.create_upload": z.object({
+    uploadId: z.string().uuid(),
+  }).strict(),
   "xvideo.update": z.object({ jobId: z.string().min(1).max(128), title: z.string().max(180).optional(), caption: z.string().max(2200).optional() }).strict(),
   "xvideo.share_test": z.object({ jobId: z.string().min(1).max(128) }).strict(),
   "xvideo.publish": z.object({
@@ -127,6 +130,7 @@ export function requiredCapability(type: CommandType): string {
 export function resourceKeyFor(type: CommandType, payload: Record<string, unknown>): string | null {
   if (type.startsWith("whatsapp.")) return "whatsapp:profile_default";
   if (["automation.start", "automation.stop", "automation.restart"].includes(type)) return "automation:runtime";
+  if (type === "xvideo.create_upload") return `video-upload:${String(payload.uploadId)}`;
   if (type.startsWith("xvideo.")) return `video:${String(payload.jobId ?? "pipeline")}`;
   if (type === "news.publish" || type === "wordpress.share") return "publishing:global";
   if (type.startsWith("instagram.")) return "instagram:default";

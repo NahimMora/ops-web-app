@@ -3,7 +3,7 @@ import { DeleteObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import type { CommandRecord, CommandStatus } from "../../../packages/contracts/src/index.js";
 import { agentConfig } from "./config.js";
-import { LocalApi } from "./local-api.js";
+import { LocalApi, LocalApiError } from "./local-api.js";
 import type { TemporaryMediaUpload } from "./ops-client.js";
 
 export type ExecutionResult = { status: CommandStatus; result: unknown; localJobId?: string };
@@ -254,7 +254,7 @@ async function ensureVideoPreview(job: any, api: LocalApi, ctx: ExecutionContext
   if (job.preview_upload_status === "ready" && Number(job.preview_revision) === revision && job.preview_url) return job;
   try {
     await ctx.progress("preview_uploading", 90, jobId);
-    await api.patch(`/api/x-video/jobs/${encodeURIComponent(jobId)}/preview`, {
+    await patchVideoPreview(api, jobId, {
       status: "uploading",
       revision,
       error: null,
@@ -278,7 +278,7 @@ async function ensureVideoPreview(job: any, api: LocalApi, ctx: ExecutionContext
     });
     await upload.done();
     const previewUrl = `${agentConfig.r2.publicBaseUrl}/${objectKey}?v=${revision}`;
-    return await api.patch(`/api/x-video/jobs/${encodeURIComponent(jobId)}/preview`, {
+    return await patchVideoPreview(api, jobId, {
       status: "ready",
       revision,
       preview_url: previewUrl,
@@ -287,13 +287,29 @@ async function ensureVideoPreview(job: any, api: LocalApi, ctx: ExecutionContext
     });
   } catch (error) {
     const warning = safeMessage(error);
-    await api.patch(`/api/x-video/jobs/${encodeURIComponent(jobId)}/preview`, {
+    await patchVideoPreview(api, jobId, {
       status: "error",
       revision,
       error: warning,
     }).catch(() => undefined);
     return { ...job, preview_upload_status: "error", preview_error: warning, preview_warning: true };
   }
+}
+
+async function patchVideoPreview(api: LocalApi, jobId: string, payload: Record<string, unknown>) {
+  const path = `/api/x-video/jobs/${encodeURIComponent(jobId)}/preview`;
+  for (let attempt = 1; attempt <= 8; attempt++) {
+    try {
+      return await api.patch(path, payload);
+    } catch (error) {
+      const transientLock = error instanceof LocalApiError
+        && error.status === 409
+        && error.message.toLowerCase().includes("operacion preview-update en curso");
+      if (!transientLock || attempt === 8) throw error;
+      await delay(Math.min(3_000, 250 * 2 ** (attempt - 1)));
+    }
+  }
+  throw new Error("Preview update retry policy exhausted");
 }
 
 async function clearVideoJobs(api: LocalApi, ctx: ExecutionContext): Promise<ExecutionResult> {

@@ -77,18 +77,7 @@ export async function createApp(repository: Repository) {
   });
   const auth = new AuthService(repository);
 
-  app.get("/health", async () => ({
-    status: "healthy",
-    service: "holasalta-ops",
-    version: "1.0.0",
-    storage: config.storageDriver,
-    r2ConfigDiagnostic: {
-      accessKeyId: `${config.uploadR2.accessKeyId.length}:${sha256(config.uploadR2.accessKeyId).slice(0, 12)}`,
-      secretAccessKey: `${config.uploadR2.secretAccessKey.length}:${sha256(config.uploadR2.secretAccessKey).slice(0, 12)}`,
-      endpoint: `${config.uploadR2.endpoint.length}:${sha256(config.uploadR2.endpoint).slice(0, 12)}`,
-      bucket: `${config.uploadR2.bucket.length}:${sha256(config.uploadR2.bucket).slice(0, 12)}`,
-    },
-  }));
+  app.get("/health", async () => ({ status: "healthy", service: "holasalta-ops", version: "1.0.0", storage: config.storageDriver }));
   app.get("/api/health", async () => ({ status: "healthy", now: new Date().toISOString() }));
   app.get("/api/version", async () => ({ version: "1.0.0", commandSchemaVersion: 1 }));
 

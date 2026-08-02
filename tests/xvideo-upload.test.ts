@@ -5,11 +5,15 @@ const r2 = vi.hoisted(() => ({
   head: { sizeBytes: 1024, contentType: "video/mp4", etag: "etag-1" },
   deleted: [] as string[],
   deleteError: false,
+  signError: false,
 }));
 
 vi.mock("../apps/server/src/r2-uploads.js", () => ({
   temporaryObjectKey: (id: string, fileName: string) => `ops/xvideo-uploads/${id}/source.${fileName.split(".").pop()}`,
-  signTemporaryPut: async (key: string) => `https://r2.example.test/${key}?put=1`,
+  signTemporaryPut: async (key: string) => {
+    if (r2.signError) throw Object.assign(new Error("must not leak"), { name: "AccessDenied", $metadata: { httpStatusCode: 403 } });
+    return `https://r2.example.test/${key}?put=1`;
+  },
   signTemporaryGet: async (key: string) => `https://r2.example.test/${key}?get=1`,
   inspectTemporaryObject: async () => ({ ...r2.head }),
   deleteTemporaryObject: async (key: string) => {
@@ -28,6 +32,7 @@ beforeEach(() => {
   r2.head = { sizeBytes: 1024, contentType: "video/mp4", etag: "etag-1" };
   r2.deleted.length = 0;
   r2.deleteError = false;
+  r2.signError = false;
 });
 
 async function fixture() {
@@ -57,6 +62,28 @@ async function fixture() {
 }
 
 describe("temporary X video uploads", () => {
+  it("returns a safe R2 diagnostic when server-side credential validation fails", async () => {
+    const { cookie, csrf } = await fixture();
+    r2.signError = true;
+    const response = await app!.inject({
+      method: "POST",
+      url: "/api/xvideo/uploads",
+      headers: { cookie, "x-csrf-token": csrf },
+      payload: {
+        fileName: "canary.mp4",
+        contentType: "video/mp4",
+        sizeBytes: 1024,
+        title: "",
+        caption: "",
+        quality: "normal",
+        textMode: "auto",
+      },
+    });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().message).toContain("AccessDenied, HTTP 403");
+    expect(response.body).not.toContain("must not leak");
+  });
+
   it("requires a user session and CSRF, and validates extension/MIME/size", async () => {
     const { cookie, csrf } = await fixture();
     const valid = {

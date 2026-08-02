@@ -133,8 +133,16 @@ export async function createApp(repository: Repository) {
     let uploadUrl: string;
     try {
       uploadUrl = await signTemporaryPut(objectKey, body.data.contentType);
-    } catch {
-      return rep.code(503).send({ error: "R2_UPLOAD_UNAVAILABLE", message: "No se pudo validar la configuración temporal de R2. Revisá las credenciales, la cuenta y el bucket." });
+    } catch (error) {
+      const failure = error as { name?: unknown; code?: unknown; Code?: unknown; $metadata?: { httpStatusCode?: unknown } };
+      const failureCode = String(failure.Code || failure.code || failure.name || "R2_ERROR").replace(/[^A-Za-z0-9_.-]/g, "").slice(0, 80) || "R2_ERROR";
+      const failureStatus = Number(failure.$metadata?.httpStatusCode || 0) || null;
+      req.log.warn({ failureCode, failureStatus }, "R2 temporary upload validation failed");
+      const diagnostic = `${failureCode}${failureStatus ? `, HTTP ${failureStatus}` : ""}`;
+      return rep.code(503).send({
+        error: "R2_UPLOAD_UNAVAILABLE",
+        message: `No se pudo validar la configuración temporal de R2 (${diagnostic}).`,
+      });
     }
     const expiresAt = new Date(Date.now() + config.uploadR2.retentionMs).toISOString();
     const uploadUrlExpiresAt = new Date(Date.now() + config.uploadR2.urlTtlSeconds * 1000).toISOString();

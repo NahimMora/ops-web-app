@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cleanEnvironmentValue, r2BrowserOrigins, r2S3Endpoint } from "../apps/server/src/config.js";
+import { cleanEnvironmentValue, normalizeR2Credential, r2BrowserOrigins, r2S3Endpoint } from "../apps/server/src/config.js";
 import { decryptSecret, encryptSecret, hashPassword, safeEqual, sanitizeForLog, tokenHash, verifyPassword } from "../apps/server/src/security.js";
 
 describe("security primitives", () => {
@@ -40,6 +40,8 @@ describe("security primitives", () => {
   it("normalizes hPanel values and prioritizes the explicit R2 account endpoint", () => {
     expect(cleanEnvironmentValue('  "secret-value"  ')).toBe("secret-value");
     expect(cleanEnvironmentValue("  plain-value\r\n")).toBe("plain-value");
+    expect(normalizeR2Credential("A1B2C3D4")).toBe("a1b2c3d4");
+    expect(normalizeR2Credential("Mixed-Key_Value")).toBe("Mixed-Key_Value");
     expect(r2S3Endpoint(" account-id ", "https://stale.example.test")).toBe(
       "https://account-id.r2.cloudflarestorage.com",
     );

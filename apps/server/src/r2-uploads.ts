@@ -1,7 +1,6 @@
 import {
   DeleteObjectCommand,
   GetObjectCommand,
-  HeadBucketCommand,
   HeadObjectCommand,
   PutObjectCommand,
   S3Client,
@@ -10,7 +9,6 @@ import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { config } from "./config.js";
 
 let client: S3Client | null = null;
-let accessValidatedUntil = 0;
 
 function uploadClient(): S3Client {
   const r2 = config.uploadR2;
@@ -30,19 +28,12 @@ function uploadClient(): S3Client {
   return client;
 }
 
-async function validateUploadAccess(): Promise<void> {
-  if (accessValidatedUntil > Date.now()) return;
-  await uploadClient().send(new HeadBucketCommand({ Bucket: config.uploadR2.bucket }));
-  accessValidatedUntil = Date.now() + 60_000;
-}
-
 export function temporaryObjectKey(uploadId: string, fileName: string): string {
   const extension = fileName.toLowerCase().match(/\.(mp4|mov|m4v|webm)$/)?.[0] ?? ".mp4";
   return `${config.uploadR2.prefix}/${uploadId}/source${extension}`;
 }
 
 export async function signTemporaryPut(objectKey: string, contentType: string): Promise<string> {
-  await validateUploadAccess();
   return getSignedUrl(
     uploadClient(),
     new PutObjectCommand({

@@ -398,10 +398,24 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
         textMode: textMode as "auto" | "manual" | "disabled",
       });
       setUploadState("Subiendo directamente a R2");
-      await putTemporaryVideo(ticket, localFile, setUploadProgress);
+      let finalized = false;
+      try {
+        await putTemporaryVideo(ticket, localFile, setUploadProgress);
+      } catch (uploadError) {
+        setUploadState("Verificando la recepción en R2");
+        try {
+          await finalizeTemporaryVideoUpload(ticket.uploadId);
+          finalized = true;
+        } catch (verificationError) {
+          const detail = verificationError instanceof Error ? verificationError.message : "R2 no encontró el objeto.";
+          throw new Error(`R2 no confirmó la carga. ${detail}`, { cause: uploadError });
+        }
+      }
       setUploadProgress(100);
-      setUploadState("Validando y encolando");
-      await finalizeTemporaryVideoUpload(ticket.uploadId);
+      if (!finalized) {
+        setUploadState("Validando y encolando");
+        await finalizeTemporaryVideoUpload(ticket.uploadId);
+      }
       setUploadState("Carga encolada para procesamiento");
       setLocalFile(null);
       setTitle("");

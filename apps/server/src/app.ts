@@ -134,7 +134,7 @@ export async function createApp(repository: Repository) {
     try {
       uploadUrl = await signTemporaryPut(objectKey, body.data.contentType);
     } catch {
-      return rep.code(503).send({ error: "R2_UPLOAD_UNAVAILABLE", message: "La carga temporal no está configurada." });
+      return rep.code(503).send({ error: "R2_UPLOAD_UNAVAILABLE", message: "No se pudo validar la configuración temporal de R2. Revisá las credenciales, la cuenta y el bucket." });
     }
     const expiresAt = new Date(Date.now() + config.uploadR2.retentionMs).toISOString();
     const uploadUrlExpiresAt = new Date(Date.now() + config.uploadR2.urlTtlSeconds * 1000).toISOString();

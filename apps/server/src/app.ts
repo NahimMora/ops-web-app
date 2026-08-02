@@ -14,7 +14,7 @@ import {
   isCommandType, parseCommandPayload, requiredCapability, resourceKeyFor, type CommandStatus, type CommandType, type SnapshotRecord,
 } from "../../../packages/contracts/src/index.js";
 import { AuthService } from "./auth.js";
-import { config } from "./config.js";
+import { config, r2BrowserOrigins } from "./config.js";
 import type { AgentRecord, CommandInternal, Repository } from "./repository.js";
 import {
   deleteTemporaryObject,
@@ -63,7 +63,7 @@ export async function createApp(repository: Repository) {
       styleSrc: ["'self'", "'unsafe-inline'"],
       imgSrc: ["'self'", "data:", "https://holasaltamedia.cc"],
       mediaSrc: ["'self'", "https://holasaltamedia.cc"],
-      connectSrc: ["'self'", ...(config.uploadR2.endpoint ? [new URL(config.uploadR2.endpoint).origin] : [])],
+      connectSrc: ["'self'", ...r2BrowserOrigins(config.uploadR2.endpoint, config.uploadR2.bucket)],
       frameAncestors: ["'none'"],
     } },
     referrerPolicy: { policy: "no-referrer" },

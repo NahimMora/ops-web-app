@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { r2BrowserOrigins } from "../apps/server/src/config.js";
 import { decryptSecret, encryptSecret, hashPassword, safeEqual, sanitizeForLog, tokenHash, verifyPassword } from "../apps/server/src/security.js";
 
 describe("security primitives", () => {
@@ -24,5 +25,15 @@ describe("security primitives", () => {
     expect(sanitizeForLog({ password: "never", nested: { apiKey: "never", ok: "visible" } })).toEqual({
       password: "[REDACTED]", nested: { apiKey: "[REDACTED]", ok: "visible" },
     });
+  });
+
+  it("allows the bucket-specific R2 origin used by presigned browser uploads", () => {
+    expect(r2BrowserOrigins("https://account.r2.cloudflarestorage.com", "media-bucket")).toEqual([
+      "https://account.r2.cloudflarestorage.com",
+      "https://media-bucket.account.r2.cloudflarestorage.com",
+    ]);
+    expect(r2BrowserOrigins("https://media-bucket.account.r2.cloudflarestorage.com", "media-bucket")).toEqual([
+      "https://media-bucket.account.r2.cloudflarestorage.com",
+    ]);
   });
 });

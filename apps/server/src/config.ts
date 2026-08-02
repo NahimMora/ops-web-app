@@ -47,6 +47,22 @@ if (raw.NODE_ENV === "production") {
   }
 }
 
+export function r2BrowserOrigins(endpoint: string, bucket: string): string[] {
+  if (!endpoint) return [];
+  const endpointUrl = new URL(endpoint);
+  const origins = new Set([endpointUrl.origin]);
+  if (
+    bucket
+    && endpointUrl.hostname.endsWith(".r2.cloudflarestorage.com")
+    && !endpointUrl.hostname.startsWith(`${bucket}.`)
+  ) {
+    const bucketUrl = new URL(endpointUrl);
+    bucketUrl.hostname = `${bucket}.${endpointUrl.hostname}`;
+    origins.add(bucketUrl.origin);
+  }
+  return [...origins];
+}
+
 export const config = {
   nodeEnv: raw.NODE_ENV,
   port: raw.PORT,

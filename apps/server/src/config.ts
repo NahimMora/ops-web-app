@@ -63,6 +63,21 @@ export function r2BrowserOrigins(endpoint: string, bucket: string): string[] {
   return [...origins];
 }
 
+export function cleanEnvironmentValue(value: string | undefined): string {
+  const trimmed = String(value ?? "").trim();
+  if (
+    trimmed.length >= 2
+    && ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+  ) return trimmed.slice(1, -1).trim();
+  return trimmed;
+}
+
+export function r2S3Endpoint(accountId: string | undefined, configuredEndpoint: string | undefined): string {
+  const normalizedAccountId = cleanEnvironmentValue(accountId);
+  if (normalizedAccountId) return `https://${normalizedAccountId}.r2.cloudflarestorage.com`;
+  return cleanEnvironmentValue(configuredEndpoint);
+}
+
 export const config = {
   nodeEnv: raw.NODE_ENV,
   port: raw.PORT,
@@ -81,10 +96,10 @@ export const config = {
   commandRetentionDays: raw.OPS_COMMAND_RETENTION_DAYS,
   logLevel: raw.OPS_LOG_LEVEL,
   uploadR2: {
-    accessKeyId: raw.OPS_UPLOAD_R2_ACCESS_KEY_ID,
-    secretAccessKey: raw.OPS_UPLOAD_R2_SECRET_ACCESS_KEY,
-    endpoint: raw.OPS_UPLOAD_R2_S3_ENDPOINT || (raw.OPS_UPLOAD_R2_ACCOUNT_ID ? `https://${raw.OPS_UPLOAD_R2_ACCOUNT_ID}.r2.cloudflarestorage.com` : ""),
-    bucket: raw.OPS_UPLOAD_R2_BUCKET,
+    accessKeyId: cleanEnvironmentValue(raw.OPS_UPLOAD_R2_ACCESS_KEY_ID),
+    secretAccessKey: cleanEnvironmentValue(raw.OPS_UPLOAD_R2_SECRET_ACCESS_KEY),
+    endpoint: r2S3Endpoint(raw.OPS_UPLOAD_R2_ACCOUNT_ID, raw.OPS_UPLOAD_R2_S3_ENDPOINT),
+    bucket: cleanEnvironmentValue(raw.OPS_UPLOAD_R2_BUCKET),
     region: raw.OPS_UPLOAD_R2_REGION,
     prefix: raw.OPS_UPLOAD_R2_PREFIX.replace(/^\/+|\/+$/g, ""),
     urlTtlSeconds: raw.OPS_UPLOAD_URL_TTL_SECONDS,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { r2BrowserOrigins } from "../apps/server/src/config.js";
+import { cleanEnvironmentValue, r2BrowserOrigins, r2S3Endpoint } from "../apps/server/src/config.js";
 import { decryptSecret, encryptSecret, hashPassword, safeEqual, sanitizeForLog, tokenHash, verifyPassword } from "../apps/server/src/security.js";
 
 describe("security primitives", () => {
@@ -35,5 +35,14 @@ describe("security primitives", () => {
     expect(r2BrowserOrigins("https://media-bucket.account.r2.cloudflarestorage.com", "media-bucket")).toEqual([
       "https://media-bucket.account.r2.cloudflarestorage.com",
     ]);
+  });
+
+  it("normalizes hPanel values and prioritizes the explicit R2 account endpoint", () => {
+    expect(cleanEnvironmentValue('  "secret-value"  ')).toBe("secret-value");
+    expect(cleanEnvironmentValue("  plain-value\r\n")).toBe("plain-value");
+    expect(r2S3Endpoint(" account-id ", "https://stale.example.test")).toBe(
+      "https://account-id.r2.cloudflarestorage.com",
+    );
+    expect(r2S3Endpoint("", " https://fallback.example.test ")).toBe("https://fallback.example.test");
   });
 });

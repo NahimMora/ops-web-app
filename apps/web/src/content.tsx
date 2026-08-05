@@ -237,7 +237,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
         <p className="card-intro">La PC descarga el contenido y las imágenes únicamente de los titulares seleccionados. Al terminar, podés corregir título y extracto en esta misma pantalla.</p>
         <div className={`stage-status ${processBusy ? "working" : processed.length ? "ready" : "waiting"}`}>
           <strong>{processBusy ? "Preparando el contenido completo" : processed.length ? `${processed.length} artículos listos para publicar` : selectedTitles.length ? `${selectedTitles.length} titulares pendientes de preparar` : "Todavía no hay titulares para preparar"}</strong>
-          <span>{processBusy ? "Se están descargando los párrafos y las imágenes. La selección quedará lista automáticamente." : processed.length ? "Ya puede editar todos los párrafos o continuar a Publicar; todos quedaron seleccionados." : selectedTitles.length ? "Presione Preparar seleccionados para descargar cada artículo." : "Busque titulares y seleccione los que quiera procesar."}</span>
+          <span>{processBusy ? "Se están descargando los párrafos y las imágenes. La selección quedará lista automáticamente." : processed.length ? "Ya puede editar acá mismo o publicar abajo; también quedaron guardados en la pestaña Preparadas junto con lo de todas las demás fuentes." : selectedTitles.length ? "Presione Preparar seleccionados para descargar cada artículo." : "Busque titulares y seleccione los que quiera procesar."}</span>
         </div>
         <Progress command={detailCommand} />
         {processed.length > 0 && (
@@ -511,15 +511,14 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
   );
 }
 
-export function News({ commands, snapshots, run }: ContentProps) {
+export function Prepared({ commands, snapshots, run }: ContentProps) {
   const snapshot = snapshots["news.current"];
-  const wpPosts = normalizeItems(snapshots["wordpress.posts"]?.payload);
   const [draft, setDraft] = useState<ContentItem[]>([]);
   const [selected, setSelected] = useState<number[]>([]);
   const [source, setSource] = useState("all");
   const [search, setSearch] = useState("");
   const [onlyImages, setOnlyImages] = useState(false);
-  const [view, setView] = useState<ViewMode>(() => readView("ops:news:view"));
+  const [view, setView] = useState<ViewMode>(() => readView("ops:prepared:view"));
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
@@ -537,7 +536,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
   }, [snapshot?.contentHash, snapshot?.payload]);
 
   useEffect(() => {
-    localStorage.setItem("ops:news:view", view);
+    localStorage.setItem("ops:prepared:view", view);
   }, [view]);
 
   const sources = [...new Set(draft.map((item) => String(item.source || "")).filter(Boolean))];
@@ -555,7 +554,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
   const publishCommand = commands.find((command) => command.id === publishCommandId);
   const operationCommand = commands.find((command) => command.id === operationCommandId);
 
-  async function runNewsOperation(type: "news.load_wordpress" | "news.save" | "news.clear_cache" | "publish.clear", payload: Record<string, unknown>, notice: string) {
+  async function runOperation(type: "news.save" | "news.clear_cache" | "publish.clear", payload: Record<string, unknown>, notice: string) {
     const command = await run(type, payload, notice);
     if (command) setOperationCommandId(command.id);
   }
@@ -576,12 +575,12 @@ export function News({ commands, snapshots, run }: ContentProps) {
 
   return (
     <div className="flow-page">
-      <Card title="Noticias preparadas" eyebrow="Redacción y publicación" actions={<ViewToggle value={view} onChange={setView} />}>
+      <Card title="Preparadas" eyebrow="Todas las fuentes" actions={<ViewToggle value={view} onChange={setView} />}>
+        <p className="card-intro">Acá se junta todo lo que la PC ya descargó desde Scrapers, sin importar la fuente. Editá lo que haga falta y publicá; cuando termines, vaciá para dejar el estado limpio para la próxima tanda.</p>
         <div className="news-actions">
-          <button disabled={isActive(operationCommand)} onClick={() => void runNewsOperation("news.load_wordpress", { perPage: 100 }, "Importación de 100 noticias iniciada")}>Traer 100 de WordPress</button>
-          <button disabled={isActive(operationCommand)} onClick={() => void runNewsOperation("news.save", { items: draft }, "Guardado de noticias iniciado")}>Guardar cambios</button>
-          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Vaciar las noticias preparadas?") && void runNewsOperation("news.clear_cache", {}, "Vaciado de noticias iniciado")}>Vaciar noticias</button>
-          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void runNewsOperation("publish.clear", {}, "Limpieza de historial iniciada")}>Limpiar historial</button>
+          <button disabled={isActive(operationCommand)} onClick={() => void runOperation("news.save", { items: draft }, "Guardado de cambios iniciado")}>Guardar cambios</button>
+          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Vaciar todas las noticias preparadas? Esta acción no se puede deshacer.") && void runOperation("news.clear_cache", {}, "Vaciado de preparadas iniciado")}>Vaciar preparadas</button>
+          <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void runOperation("publish.clear", {}, "Limpieza de historial iniciada")}>Limpiar historial</button>
         </div>
         <Progress command={operationCommand} />
         {operationCommand && !isActive(operationCommand) && <ResultSummary command={operationCommand} />}
@@ -597,7 +596,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
           </Field>
           <label className="switch-row"><input type="checkbox" checked={onlyImages} onChange={(event) => setOnlyImages(event.target.checked)} />Solo con imagen</label>
         </div>
-        {draft.length > 0 && <SelectionBar shown={visible.map(({ index }) => index)} selected={selected} label={`${draft.length} noticias · ${selected.length} seleccionadas`} onChange={setSelected} />}
+        {draft.length > 0 && <SelectionBar shown={visible.map(({ index }) => index)} selected={selected} label={`${draft.length} preparadas · ${selected.length} seleccionadas`} onChange={setSelected} />}
         <ArticleList
           items={visible}
           selected={selected}
@@ -606,6 +605,7 @@ export function News({ commands, snapshots, run }: ContentProps) {
           editable
           onChange={(index, item) => setDraft((current) => current.map((existing, currentIndex) => currentIndex === index ? item : existing))}
         />
+        {!draft.length && <Empty text="Todavía no hay noticias preparadas" detail="Andá a Scrapers, buscá titulares y preparalos: van a aparecer acá apenas la PC termine de procesarlos." />}
       </Card>
 
       <Card title="Destinos de publicación" eyebrow="WordPress y redes" className="publication-controls">
@@ -628,8 +628,6 @@ export function News({ commands, snapshots, run }: ContentProps) {
         {publishCommand?.result && <><ResultSummary command={publishCommand} /><TechnicalDetails value={publishCommand.result} /></>}
       </Card>
 
-      <WordPressArchive posts={wpPosts} platforms={platforms.filter((platform) => platform !== "web")} groups={selectedGroups} groupSet={selectedGroupSet} run={run} />
-
       <ReviewModal
         open={reviewOpen}
         title="Publicar noticias"
@@ -640,6 +638,52 @@ export function News({ commands, snapshots, run }: ContentProps) {
         onClose={() => setReviewOpen(false)}
         onConfirm={() => void handlePublish()}
       />
+    </div>
+  );
+}
+
+export function WordPressShare({ commands, snapshots, run }: ContentProps) {
+  const wpPosts = normalizeItems(snapshots["wordpress.posts"]?.payload);
+  const [platforms, setPlatforms] = useState<string[]>(["instagram", "facebook", "x"]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
+  const [operationCommandId, setOperationCommandId] = useState("");
+  const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
+  const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
+  const operationCommand = commands.find((command) => command.id === operationCommandId);
+
+  async function runImport() {
+    const command = await run("news.load_wordpress", { perPage: 100 }, "Importación de 100 posts iniciada");
+    if (command) setOperationCommandId(command.id);
+  }
+
+  return (
+    <div className="flow-page">
+      <Card
+        title="Importar desde WordPress"
+        eyebrow="Sincronización"
+        actions={<button disabled={isActive(operationCommand)} onClick={() => void runImport()}>Traer 100 de WordPress</button>}
+      >
+        <p className="card-intro">Trae los últimos posts ya publicados en WordPress para poder volver a compartirlos en redes desde acá abajo.</p>
+        <Progress command={operationCommand} />
+        {operationCommand && !isActive(operationCommand) && <ResultSummary command={operationCommand} />}
+      </Card>
+
+      <Card title="Destinos para republicar" eyebrow="Redes">
+        <PlatformChooser selected={platforms} allowed={["facebook", "instagram", "x", "whatsapp"]} onChange={setPlatforms} />
+        {platforms.includes("whatsapp") && (
+          <WhatsAppSelector
+            snapshots={snapshots}
+            selectedIds={selectedGroupIds}
+            selectedSet={selectedGroupSet}
+            onSelectedIds={setSelectedGroupIds}
+            onSelectedSet={setSelectedGroupSet}
+            run={run}
+          />
+        )}
+      </Card>
+
+      <WordPressArchive posts={wpPosts} platforms={platforms} groups={selectedGroups} groupSet={selectedGroupSet} run={run} />
     </div>
   );
 }

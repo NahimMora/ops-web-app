@@ -17,7 +17,7 @@ import {
   retryCommand,
   setupTotp,
 } from "./api";
-import { ManualNews, News, Scrapers, WhatsAppSelector, normalizeGroups } from "./content";
+import { ManualNews, Prepared, Scrapers, WhatsAppSelector, WordPressShare, normalizeGroups } from "./content";
 import {
   Badge,
   Card,
@@ -37,16 +37,17 @@ import {
   type RunCommand,
 } from "./ui";
 
-type Tab = "dashboard" | "manual-news" | "news" | "scrapers" | "videos" | "automation" | "commands" | "audit" | "settings";
+type Tab = "dashboard" | "manual-news" | "prepared" | "wordpress" | "scrapers" | "videos" | "automation" | "commands" | "audit" | "settings";
 type IconName = "home" | "manual-news" | "news" | "scraper" | "video" | "automation" | "queue" | "audit" | "security";
 type NavItem = { id: Tab; label: string; description: string; icon: IconName };
 
 const navGroups: Array<{ title: string; items: NavItem[] }> = [
   { title: "Inicio", items: [{ id: "dashboard", label: "Resumen", description: "Estado general y acciones rápidas", icon: "home" }] },
   { title: "Contenido", items: [
-    { id: "scrapers", label: "Scrapers", description: "Buscar, preparar y publicar", icon: "scraper" },
+    { id: "scrapers", label: "Scrapers", description: "Buscar y preparar titulares por fuente", icon: "scraper" },
+    { id: "prepared", label: "Preparadas", description: "Todo lo preparado por los scrapers, de todas las fuentes, listo para editar y publicar", icon: "news" },
     { id: "manual-news", label: "Publicación manual", description: "Crear una noticia y publicarla en uno o más destinos", icon: "manual-news" },
-    { id: "news", label: "Noticias", description: "Redacción, WordPress y redes", icon: "news" },
+    { id: "wordpress", label: "WordPress", description: "Importar y republicar posts ya publicados", icon: "news" },
     { id: "videos", label: "Videos", description: "Procesamiento, publicación y R2", icon: "video" },
   ] },
   { title: "Operación", items: [
@@ -191,7 +192,8 @@ export function App() {
           {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} navigate={navigate} />}
           {tab === "scrapers" && <Scrapers commands={commands} snapshots={snapshots} run={run} />}
           {tab === "manual-news" && <ManualNews commands={commands} snapshots={snapshots} run={run} />}
-          {tab === "news" && <News commands={commands} snapshots={snapshots} run={run} />}
+          {tab === "prepared" && <Prepared commands={commands} snapshots={snapshots} run={run} />}
+          {tab === "wordpress" && <WordPressShare commands={commands} snapshots={snapshots} run={run} />}
           {tab === "automation" && <Automation snapshots={snapshots} run={run} />}
           {tab === "videos" && <Videos snapshots={snapshots} commands={commands} run={run} />}
           {tab === "commands" && <Commands items={commands} refresh={refresh} />}
@@ -255,6 +257,7 @@ function Dashboard({ data, commands, snapshots, run, navigate }: any) {
         <Card title="Acciones rápidas" eyebrow="Operación diaria">
           <div className="quick-actions">
             <button onClick={() => navigate("scrapers")}><NavIcon name="scraper" /><span><strong>Buscar noticias</strong><small>Abrir flujo editorial</small></span></button>
+            <button onClick={() => navigate("prepared")}><NavIcon name="news" /><span><strong>Ver preparadas</strong><small>Editar y publicar lo ya procesado</small></span></button>
             <button onClick={() => navigate("manual-news")}><NavIcon name="manual-news" /><span><strong>Crear noticia manual</strong><small>Redactar y publicar en múltiples destinos</small></span></button>
             <button onClick={() => void run("snapshot.refresh", {})}><NavIcon name="queue" /><span><strong>Sincronizar estado</strong><small>Actualizar datos locales</small></span></button>
             <button onClick={() => void run("automation.restart", {})}><NavIcon name="automation" /><span><strong>Reiniciar runtime</strong><small>Restablecer workers</small></span></button>

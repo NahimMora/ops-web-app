@@ -33,6 +33,22 @@ export class MySqlRepository implements Repository {
         [userId, bootstrap.adminEmail, "Administrador", bootstrap.passwordHash],
       );
       if (passwordChanged) await connection.query("DELETE FROM sessions WHERE user_id=?", [userId]);
+      for (const extra of bootstrap.extraUsers ?? []) {
+        const [extraRows] = await connection.query<DbRow[]>("SELECT id,password_hash FROM users WHERE email=? LIMIT 1 FOR UPDATE", [extra.email]);
+        const existingExtra = extraRows[0];
+        const extraPasswordChanged = Boolean(existingExtra && String(existingExtra.password_hash) !== extra.passwordHash);
+        const extraUserId = existingExtra ? String(existingExtra.id) : randomUUID();
+        await connection.query(
+          `INSERT INTO users (id,email,display_name,password_hash,role,status) VALUES (?,?,?,?,?,'active')
+           ON DUPLICATE KEY UPDATE display_name=VALUES(display_name),
+           role=VALUES(role),
+           failed_login_count=0,
+           locked_until=NULL,
+           password_hash=VALUES(password_hash)`,
+          [extraUserId, extra.email, extra.displayName, extra.passwordHash, extra.role],
+        );
+        if (extraPasswordChanged) await connection.query("DELETE FROM sessions WHERE user_id=?", [extraUserId]);
+      }
       await connection.query(
         `INSERT INTO agents (id,name,token_hash,status,capabilities_json) VALUES (?,?,?,'offline','[]')
          ON DUPLICATE KEY UPDATE name=VALUES(name), token_hash=IF(token_hash='',VALUES(token_hash),token_hash)`,

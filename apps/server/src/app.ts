@@ -25,6 +25,17 @@ import {
 } from "./r2-uploads.js";
 import { randomToken, safeEqual, sanitizeForLog, sha256, tokenHash } from "./security.js";
 
+// "operator" accounts (e.g. a restricted publisher login) are scoped to the
+// manual-publish flow only: they may create news.publish commands, but no
+// other command type (scraping, automation control, video, whatsapp admin).
+// Everything else in this list is checked ad hoc against ctx.user.role.
+const operatorAllowedCommandTypes = new Set<CommandType>(["news.publish"]);
+function isCommandTypeAllowedForRole(role: "admin" | "operator" | "viewer", type: CommandType): boolean {
+  if (role === "admin") return true;
+  if (role === "operator") return operatorAllowedCommandTypes.has(type);
+  return false;
+}
+
 const idSchema = z.object({ id: z.string().min(1).max(200) });
 const snapshotSchema = z.object({ key: z.string().min(1).max(190), revision: z.number().int().min(0), schemaVersion: z.number().int().min(1).max(100).default(1), payload: z.unknown(), contentHash: z.string().regex(/^[a-f0-9]{64}$/), capturedAt: z.string().datetime() }).strict();
 const manualImageSchema = z.object({ dataUrl: z.string().min(1).max(4_300_000), fileName: z.string().min(1).max(200) }).strict();
@@ -95,8 +106,8 @@ export async function createApp(repository: Repository) {
     const agentOnline = Boolean(agent?.lastSeenAt && Date.now() - Date.parse(agent.lastSeenAt) < 30_000);
     rep.send({ agent: agent ? { ...agent, tokenHash: undefined, online: agentOnline } : null, snapshots: snapshots.map(withFreshness), commands: commands.map(publicCommand), counts: { active: commands.filter((c) => ["queued", "claimed", "running"].includes(c.status)).length, attention: commands.filter((c) => ["requires_attention", "waiting_manual_retry", "completed_unverified"].includes(c.status)).length } });
   });
-  app.get("/api/snapshots", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; rep.send({ items: (await repository.listSnapshots()).map(withFreshness) }); });
-  app.get("/api/snapshots/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const parsed = idSchema.safeParse(req.params); if (!parsed.success) return rep.code(400).send({ error: "INVALID_ID" }); const snapshot = await repository.getSnapshot(parsed.data.id); return snapshot ? rep.send(withFreshness(snapshot)) : rep.code(404).send({ error: "NOT_FOUND" }); });
+  app.get("/api/snapshots", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ items: (await repository.listSnapshots()).map(withFreshness) }); });
+  app.get("/api/snapshots/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const parsed = idSchema.safeParse(req.params); if (!parsed.success) return rep.code(400).send({ error: "INVALID_ID" }); const snapshot = await repository.getSnapshot(parsed.data.id); return snapshot ? rep.send(withFreshness(snapshot)) : rep.code(404).send({ error: "NOT_FOUND" }); });
 
   app.post("/api/manual-news/images", { config: { rateLimit: { max: 20, timeWindow: "1 hour" } } }, async (req, rep) => {
     const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
@@ -122,6 +133,7 @@ export async function createApp(repository: Repository) {
 
   app.post("/api/xvideo/uploads", { config: { rateLimit: { max: 20, timeWindow: "1 hour" } } }, async (req, rep) => {
     const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
+    if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" });
     const body = temporaryUploadCreateSchema.safeParse(req.body);
     if (!body.success) return rep.code(400).send({ error: "INVALID_VIDEO_UPLOAD", details: body.error.flatten() });
     const extension = body.data.fileName.split(".").pop()!.toLowerCase();
@@ -178,6 +190,7 @@ export async function createApp(repository: Repository) {
 
   app.post("/api/xvideo/uploads/:id/finalize", async (req, rep) => {
     const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
+    if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" });
     const id = temporaryUploadIdSchema.safeParse(req.params);
     if (!id.success) return rep.code(400).send({ error: "INVALID_UPLOAD_ID" });
     const upload = await repository.getTemporaryMediaUpload(id.data.id);
@@ -235,7 +248,9 @@ export async function createApp(repository: Repository) {
   app.post("/api/commands", { config: { rateLimit: { max: 60, timeWindow: "1 minute" } } }, async (req, rep) => {
     const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
     const parsed = commandCreateSchema.safeParse(req.body); if (!parsed.success || !isCommandType(parsed.data.type)) return rep.code(400).send({ error: "INVALID_COMMAND", details: parsed.success ? undefined : parsed.error.flatten() });
-    const type = parsed.data.type as CommandType; let payload: Record<string, unknown>;
+    const type = parsed.data.type as CommandType;
+    if (!isCommandTypeAllowedForRole(ctx.user.role, type)) return rep.code(403).send({ error: "FORBIDDEN", message: "Tu rol no puede crear este tipo de comando." });
+    let payload: Record<string, unknown>;
     try { payload = parseCommandPayload(type, parsed.data.payload); } catch (error) { return rep.code(400).send({ error: "INVALID_PAYLOAD", message: error instanceof Error ? error.message : "Payload invalido" }); }
     const key = String(req.headers["idempotency-key"] ?? "").trim(); if (!key || key.length > 190) return rep.code(400).send({ error: "IDEMPOTENCY_KEY_REQUIRED" });
     const payloadHash = sha256(JSON.stringify(payload));
@@ -245,11 +260,11 @@ export async function createApp(repository: Repository) {
     await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "command.create", targetType: "command", targetId: result.command.id, result: result.created ? "created" : "reused", metadata: { type } });
     rep.code(result.created ? 201 : 200).send({ command: publicCommand(result.command), created: result.created });
   });
-  app.get("/api/commands", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const query = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), status: commandStatusSchema.optional() }).safeParse(req.query); if (!query.success) return rep.code(400).send({ error: "INVALID_QUERY" }); rep.send({ items: (await repository.listCommands(query.data.limit, query.data.status)).map(publicCommand) }); });
-  app.get("/api/commands/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); return command ? rep.send({ command: publicCommand(command) }) : rep.code(404).send({ error: "NOT_FOUND" }); });
-  app.get("/api/commands/:id/events", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); rep.send({ items: await repository.listEvents(id.data.id, 500) }); });
-  app.post("/api/commands/:id/cancel", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.cancelCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_CANCELLABLE" }); await repository.appendEvent(command.id, "cancelled", "warning", "Comando cancelado por el usuario"); rep.send({ command: publicCommand(command) }); });
-  app.post("/api/commands/:id/retry", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.retryCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" }); await repository.appendEvent(command.id, "requeued", "warning", "Reintento solicitado por el usuario"); rep.send({ command: publicCommand(command) }); });
+  app.get("/api/commands", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const query = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), status: commandStatusSchema.optional() }).safeParse(req.query); if (!query.success) return rep.code(400).send({ error: "INVALID_QUERY" }); rep.send({ items: (await repository.listCommands(query.data.limit, query.data.status)).map(publicCommand) }); });
+  app.get("/api/commands/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); return command ? rep.send({ command: publicCommand(command) }) : rep.code(404).send({ error: "NOT_FOUND" }); });
+  app.get("/api/commands/:id/events", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); rep.send({ items: await repository.listEvents(id.data.id, 500) }); });
+  app.post("/api/commands/:id/cancel", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.cancelCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_CANCELLABLE" }); await repository.appendEvent(command.id, "cancelled", "warning", "Comando cancelado por el usuario"); rep.send({ command: publicCommand(command) }); });
+  app.post("/api/commands/:id/retry", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.retryCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" }); await repository.appendEvent(command.id, "requeued", "warning", "Reintento solicitado por el usuario"); rep.send({ command: publicCommand(command) }); });
   app.get("/api/audit", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ items: await repository.listAudit(500) }); });
 
   app.post("/api/agent/heartbeat", async (req, rep) => { const agent = await requireAgent(req, rep, repository); if (!agent) return; const body = agentHeartbeatSchema.safeParse(req.body); if (!body.success || body.data.agentId !== agent.id) return rep.code(400).send({ error: "INVALID_HEARTBEAT" }); const updated = await repository.heartbeatAgent(agent.id, body.data.version, body.data.capabilities, body.data.localHealth); rep.send({ ok: true, agent: updated && { ...updated, tokenHash: undefined }, serverTime: new Date().toISOString() }); });

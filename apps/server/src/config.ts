@@ -16,6 +16,9 @@ const envSchema = z.object({
   OPS_TOKEN_PEPPER: z.string().default("development-token-pepper-change-me"),
   OPS_BOOTSTRAP_ADMIN_EMAIL: z.string().email().default("holasalta@acceso.com"),
   OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH: z.string().default(""),
+  OPS_BOOTSTRAP_OPERATOR_EMAIL: z.string().default(""),
+  OPS_BOOTSTRAP_OPERATOR_PASSWORD_HASH: z.string().default(""),
+  OPS_BOOTSTRAP_OPERATOR_DISPLAY_NAME: z.string().default("Operador"),
   OPS_BOOTSTRAP_AGENT_ID: z.string().min(1).max(100).default("pc-holasalta-01"),
   OPS_BOOTSTRAP_AGENT_NAME: z.string().min(1).max(200).default("PC HolaSalta"),
   OPS_BOOTSTRAP_AGENT_TOKEN_HASH: z.string().default(""),
@@ -45,6 +48,10 @@ if (raw.NODE_ENV === "production") {
   if (!/^scrypt\$32768\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}$/.test(raw.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH)) {
     throw new Error("Invalid bootstrap admin password hash format");
   }
+}
+const scryptHashPattern = /^scrypt\$32768\$8\$1\$[A-Za-z0-9_-]{22}\$[A-Za-z0-9_-]{86}$/;
+if (raw.OPS_BOOTSTRAP_OPERATOR_EMAIL && !scryptHashPattern.test(raw.OPS_BOOTSTRAP_OPERATOR_PASSWORD_HASH)) {
+  throw new Error("OPS_BOOTSTRAP_OPERATOR_EMAIL is set but OPS_BOOTSTRAP_OPERATOR_PASSWORD_HASH is missing or invalid");
 }
 
 export function r2BrowserOrigins(endpoint: string, bucket: string): string[] {
@@ -96,6 +103,9 @@ export const config = {
   bootstrap: {
     adminEmail: raw.OPS_BOOTSTRAP_ADMIN_EMAIL.toLowerCase(), passwordHash: raw.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH,
     agentId: raw.OPS_BOOTSTRAP_AGENT_ID, agentName: raw.OPS_BOOTSTRAP_AGENT_NAME, agentTokenHash: raw.OPS_BOOTSTRAP_AGENT_TOKEN_HASH,
+    extraUsers: raw.OPS_BOOTSTRAP_OPERATOR_EMAIL
+      ? [{ email: raw.OPS_BOOTSTRAP_OPERATOR_EMAIL.toLowerCase(), passwordHash: raw.OPS_BOOTSTRAP_OPERATOR_PASSWORD_HASH, displayName: raw.OPS_BOOTSTRAP_OPERATOR_DISPLAY_NAME, role: "operator" as const }]
+      : [],
   },
   sessionTtlMs: raw.OPS_SESSION_TTL_HOURS * 60 * 60 * 1000,
   commandRetentionDays: raw.OPS_COMMAND_RETENTION_DAYS,

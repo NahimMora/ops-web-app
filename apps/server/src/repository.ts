@@ -23,7 +23,8 @@ export interface TemporaryMediaUploadRecord {
   commandId: string | null; errorMessage: string | null; expiresAt: string;
   createdAt: string; updatedAt: string; consumedAt: string | null;
 }
-export interface BootstrapInput { adminEmail: string; passwordHash: string; agentId: string; agentName: string; agentTokenHash: string; }
+export interface BootstrapExtraUser { email: string; passwordHash: string; displayName: string; role: "operator" | "viewer"; }
+export interface BootstrapInput { adminEmail: string; passwordHash: string; agentId: string; agentName: string; agentTokenHash: string; extraUsers?: BootstrapExtraUser[]; }
 export interface CreateCommandInput {
   id: string; type: CommandType; payload: Record<string, unknown>; payloadHash: string; idempotencyKey: string; priority: number;
   requiredCapability: string; resourceKey: string | null; createdBy: string; maxAttempts: number;
@@ -80,6 +81,15 @@ export class MemoryRepository implements Repository {
       const passwordChanged = existing.passwordHash !== bootstrap.passwordHash;
       existing.passwordHash = bootstrap.passwordHash; existing.failedLoginCount = 0; existing.lockedUntil = null;
       if (passwordChanged) await this.revokeUserSessions(existing.id);
+    }
+    for (const extra of bootstrap.extraUsers ?? []) {
+      const existingExtra = [...this.users.values()].find((u) => u.email === extra.email);
+      if (!existingExtra) this.users.set(`bootstrap-${extra.email}`, { id: `bootstrap-${extra.email}`, email: extra.email, displayName: extra.displayName, passwordHash: extra.passwordHash, role: extra.role, status: "active", failedLoginCount: 0, lockedUntil: null, lastLoginAt: null, totpSecretEncrypted: null, totpEnabled: false });
+      else {
+        const passwordChanged = existingExtra.passwordHash !== extra.passwordHash;
+        existingExtra.passwordHash = extra.passwordHash; existingExtra.displayName = extra.displayName; existingExtra.role = extra.role; existingExtra.failedLoginCount = 0; existingExtra.lockedUntil = null;
+        if (passwordChanged) await this.revokeUserSessions(existingExtra.id);
+      }
     }
     if (!this.agents.has(bootstrap.agentId)) this.agents.set(bootstrap.agentId, { id: bootstrap.agentId, name: bootstrap.agentName, tokenHash: bootstrap.agentTokenHash, status: "offline", version: null, capabilities: [], lastSeenAt: null, revokedAt: null });
   }

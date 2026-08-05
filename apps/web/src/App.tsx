@@ -58,6 +58,19 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
 ];
 const nav = navGroups.flatMap((group) => group.items);
 
+// Restricted "operator" accounts (e.g. a login shared only for manual
+// publishing) see nothing but Publicación manual — mirrors the backend
+// gate in apps/server/src/app.ts (operatorAllowedCommandTypes) so a
+// restricted user can't reach other pages even by guessing a tab id.
+const OPERATOR_TABS: readonly Tab[] = ["manual-news"];
+
+function navGroupsForRole(role: string | undefined): Array<{ title: string; items: NavItem[] }> {
+  if (role === "admin") return navGroups;
+  return navGroups
+    .map((group) => ({ ...group, items: group.items.filter((item) => (OPERATOR_TABS as readonly string[]).includes(item.id)) }))
+    .filter((group) => group.items.length > 0);
+}
+
 export function App() {
   const [user, setUser] = useState<any>(null);
   const [checking, setChecking] = useState(true);
@@ -90,6 +103,12 @@ export function App() {
 
   useEffect(() => {
     if (!user) return;
+    const allowed = navGroupsForRole(user.role).flatMap((group) => group.items).map((item) => item.id);
+    if (!allowed.includes(tab)) setTab((allowed[0] ?? "dashboard") as Tab);
+  }, [user, tab]);
+
+  useEffect(() => {
+    if (!user) return;
     void refresh();
     const pollMs = (dashboard?.counts?.active ?? 0) > 0 ? 2000 : 10000;
     const timer = window.setInterval(refresh, pollMs);
@@ -115,8 +134,11 @@ export function App() {
   if (!user) return <Login onLogin={setUser} />;
 
   const snapshots = Object.fromEntries((dashboard?.snapshots ?? []).map((snapshot: any) => [snapshot.key, snapshot]));
-  const currentPage = nav.find((item) => item.id === tab) ?? nav[0]!;
+  const scopedNavGroups = navGroupsForRole(user.role);
+  const scopedNav = scopedNavGroups.flatMap((group) => group.items);
+  const currentPage = scopedNav.find((item) => item.id === tab) ?? scopedNav[0] ?? nav[0]!;
   const navigate = (next: Tab) => {
+    if (!scopedNav.some((item) => item.id === next)) return;
     setTab(next);
     setMobileNavOpen(false);
   };
@@ -129,7 +151,7 @@ export function App() {
           <button className="mobile-close" onClick={() => setMobileNavOpen(false)} aria-label="Cerrar navegación">×</button>
         </div>
         <nav aria-label="Navegación principal">
-          {navGroups.map((group) => (
+          {scopedNavGroups.map((group) => (
             <div className="nav-group" key={group.title}>
               <p>{group.title}</p>
               {group.items.map((item) => (
@@ -156,8 +178,8 @@ export function App() {
             <div><strong>{currentPage.label}</strong><span>HolaSalta Ops</span></div>
           </div>
           <div className="topbar-end">
-            <button className={`agent-pill ${dashboard?.agent?.online ? "online" : "offline"}`} onClick={() => navigate("dashboard")}><StatusDot online={dashboard?.agent?.online} />{dashboard?.agent?.online ? "Agente conectado" : "Agente desconectado"}</button>
-            <button className="jobs-pill" onClick={() => navigate("commands")}>Activos <b>{dashboard?.counts?.active ?? 0}</b></button>
+            {user.role === "admin" && <button className={`agent-pill ${dashboard?.agent?.online ? "online" : "offline"}`} onClick={() => navigate("dashboard")}><StatusDot online={dashboard?.agent?.online} />{dashboard?.agent?.online ? "Agente conectado" : "Agente desconectado"}</button>}
+            {user.role === "admin" && <button className="jobs-pill" onClick={() => navigate("commands")}>Activos <b>{dashboard?.counts?.active ?? 0}</b></button>}
             <div className="user"><span>{user.email}</span><button className="ghost" onClick={() => logout().then(() => setUser(null))}>Salir</button></div>
           </div>
         </header>

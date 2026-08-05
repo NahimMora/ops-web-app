@@ -5,6 +5,7 @@ function classifyStartupFailure(error) {
   if (message.includes("missing production variables")) return "CONFIG_REQUIRED_VARIABLES";
   if (message.includes("must be a production secret")) return "CONFIG_WEAK_SECRET";
   if (message.includes("invalid bootstrap admin password hash")) return "CONFIG_INVALID_VARIABLES";
+  if (message.includes("ops_bootstrap_operator_password_hash")) return "CONFIG_INVALID_VARIABLES";
   if (error?.name === "ZodError") return "CONFIG_INVALID_VARIABLES";
   if (code === "ER_ACCESS_DENIED_ERROR") return "MYSQL_AUTH_FAILED";
   if (code === "ER_BAD_DB_ERROR") return "MYSQL_DATABASE_NOT_FOUND";
@@ -18,9 +19,13 @@ if (process.env.DB_HOST === "localhost" || process.env.DB_HOST === "::1") {
   process.env.DB_HOST = "127.0.0.1";
 }
 
-if (typeof process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH === "string") {
-  process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH =
-    process.env.OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH.replaceAll("\\$", "$");
+// Hostinger/hPanel escapes literal "$" as "\$" when it stores an environment
+// variable value, which corrupts our scrypt$N$r$p$salt$hash format. Undo it
+// for every bootstrap password hash, not just the admin one.
+for (const key of ["OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH", "OPS_BOOTSTRAP_OPERATOR_PASSWORD_HASH"]) {
+  if (typeof process.env[key] === "string") {
+    process.env[key] = process.env[key].replaceAll("\\$", "$");
+  }
 }
 
 console.info("[startup] entry=server.js");

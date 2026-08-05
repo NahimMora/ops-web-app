@@ -487,6 +487,7 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
             </Field>
           </div>
           <Field label="Título"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={180} /></Field>
+          {titleOverlayWarning(title) && <div className="inline-warning">{titleOverlayWarning(title)}</div>}
           <Field label="Caption"><textarea rows={5} value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} /></Field>
           <div className="grid two form-grid">
             <button className="primary wide" disabled={!url.trim() || Boolean(localFile)} onClick={() => void createSingle()}>Procesar URL</button>
@@ -566,30 +567,97 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
   );
 }
 
+// Rough client-side heuristic for whether a title is likely to fail the
+// server's overlay fit check (processor.py raises instead of clipping words,
+// so a title that doesn't fit fails the whole render, not just the caption).
+// Not pixel-exact — it's a soft warning to catch the failure before a wasted
+// render, not a hard limit; the backend remains the source of truth.
+const TITLE_OVERLAY_SOFT_LIMIT = 170;
+
+function titleOverlayWarning(title: string): string | null {
+  const trimmed = title.trim();
+  if (!trimmed) return null;
+  if (trimmed.length > TITLE_OVERLAY_SOFT_LIMIT) {
+    return `El título tiene ${trimmed.length} caracteres — es posible que no entre en el video (máx. 6 líneas) y el renderizado falle. Achicalo si podés.`;
+  }
+  const longestWord = Math.max(...trimmed.split(/\s+/).map((word) => word.length));
+  if (longestWord > 28) {
+    return "Hay una palabra muy larga sin espacios — puede no entrar en el ancho del video.";
+  }
+  return null;
+}
+
+// preview_upload_status sits in "pending"/"uploading" while the PC's agent
+// hasn't finished (or hasn't started) uploading the preview clip to R2. If
+// the agent was offline or the attempt got lost, this used to hang forever
+// with no visible signal. preview_status_at (set by the backend whenever the
+// status changes) lets the UI tell "still working" apart from "stuck."
+const PREVIEW_STALE_MS = 3 * 60_000;
+
+function isPreviewStale(job: ContentItem): boolean {
+  const status = String(job.preview_upload_status ?? "");
+  if (!["pending", "uploading"].includes(status)) return false;
+  const statusAt = job.preview_status_at ? Date.parse(String(job.preview_status_at)) : NaN;
+  if (Number.isNaN(statusAt)) return false;
+  return Date.now() - statusAt > PREVIEW_STALE_MS;
+}
+
+const VIDEO_ERROR_MESSAGES: Record<string, string> = {
+  download_timeout: "La descarga del video de origen superó el tiempo límite. Probá de nuevo — si la URL es muy pesada o la red está lenta puede volver a pasar.",
+  download_tool_missing: "Falta una herramienta en la PC para descargar el video (yt-dlp). Avisá para revisar la instalación.",
+  download_failed: "No se pudo descargar el video de origen. Revisá que la URL sea válida y pública, y probá de nuevo.",
+  title_too_long: "El título no entra en el video ni con la fuente más chica. Achicalo y volvé a guardar los cambios.",
+  render_timeout: "El armado del video superó el tiempo límite en la PC. Probá de nuevo; si se repite, puede ser un video muy pesado.",
+  render_tool_missing: "Falta una herramienta en la PC para armar el video (ffmpeg/ffprobe). Avisá para revisar la instalación.",
+  render_failed: "Falló el armado del video en la PC. Podés reintentar; si persiste, revisá el detalle técnico abajo.",
+  publish_failed: "Falló la publicación. El video sigue listo — podés reintentar la publicación cuando quieras.",
+  processing_failed: "Algo falló procesando este video. Podés reintentar; si persiste, revisá el detalle técnico abajo.",
+};
+
+function videoErrorMessage(job: ContentItem): string | null {
+  if (String(job.status) !== "failed") return null;
+  const code = String(job.error_code ?? "");
+  const friendly = VIDEO_ERROR_MESSAGES[code];
+  const raw = String(job.error ?? "").trim();
+  if (friendly) return raw ? `${friendly} (${raw})` : friendly;
+  return raw || "Este video quedó en estado fallido.";
+}
+
 function VideoJobCard({ job, selected, onSelected, platforms, groups, groupSet, run }: { job: ContentItem; selected: boolean; onSelected(): void; platforms: string[]; groups: ContentItem[]; groupSet: ContentItem | null; run: RunCommand }) {
   const id = String(job.job_id ?? job.id ?? "");
   const [title, setTitle] = useState(String(job.title ?? ""));
   const [caption, setCaption] = useState(String(job.caption ?? ""));
   const ready = String(job.status) === "ready";
   const canPublish = ready && platforms.length > 0 && (!platforms.includes("whatsapp") || groups.length > 0);
+  const titleWarning = titleOverlayWarning(title);
+  const previewStale = isPreviewStale(job);
+  const previewNeedsRetry = job.preview_upload_status === "error" || previewStale;
+  const errorMessage = videoErrorMessage(job);
+  const renderProgress = job.status === "processing" ? Number(job.render_progress_percent ?? 0) : null;
   return (
     <article className={`video-card ${selected ? "selected" : ""}`}>
       <button className="article-select" onClick={onSelected}><span>{selected ? "✓" : ""}</span></button>
       <div className="video-card-head"><Badge status={String(job.status ?? "unknown")} /><small>{shortDate(job.updated_at ?? job.created_at)}</small></div>
+      {renderProgress !== null && renderProgress > 0 && (
+        <div className="upload-progress" role="status"><span>Armando el video…</span><progress max={100} value={renderProgress} /></div>
+      )}
+      {errorMessage && <div className="inline-error" role="alert">{errorMessage}</div>}
       {job.preview_url
         && job.preview_upload_status === "ready"
         && Number(job.preview_revision) === Number(job.render_revision)
         && <video className="video-preview" src={String(job.preview_url)} controls playsInline preload="metadata" />}
       {job.preview_upload_status && job.preview_upload_status !== "ready" && (
-        <div className={job.preview_upload_status === "error" ? "inline-warning" : "preview-state"}>
+        <div className={job.preview_upload_status === "error" || previewStale ? "inline-warning" : "preview-state"}>
           Preview: {statusLabel(String(job.preview_upload_status))}
           {job.preview_error ? ` · ${String(job.preview_error)}` : ""}
+          {previewStale && !job.preview_error ? " · sin novedades hace rato, puede haberse trabado" : ""}
         </div>
       )}
       <Field label="Título"><input value={title} onChange={(event) => setTitle(event.target.value)} maxLength={180} /></Field>
+      {titleWarning && <div className="inline-warning">{titleWarning}</div>}
       <Field label="Caption"><textarea rows={4} value={caption} onChange={(event) => setCaption(event.target.value)} maxLength={2200} /></Field>
       <div className="actions">
-        <button onClick={() => void run("xvideo.update", { jobId: id, title, caption }, job.preview_upload_status === "error" ? "Reintento de preview encolado" : "Edición de video encolada")}>{job.preview_upload_status === "error" ? "Reintentar preview" : "Guardar texto"}</button>
+        <button onClick={() => void run("xvideo.update", { jobId: id, title, caption }, previewNeedsRetry ? "Reintento de preview encolado" : "Edición de video encolada")}>{previewNeedsRetry ? "Reintentar preview" : "Guardar texto"}</button>
         <button disabled={!ready} onClick={() => void run("xvideo.share_test", { jobId: id }, "Prueba de WhatsApp encolada")}>Grupo de prueba</button>
         <button className="primary" disabled={!canPublish} onClick={() => void run("xvideo.publish", { jobId: id, platforms, title, caption, whatsappGroups: groups, whatsappGroupSet: groupSet }, "Publicación de video encolada")}>Publicar</button>
         <button disabled={!ready} onClick={() => void run("xvideo.export_r2", { jobId: id, filename: `${id}.mp4` }, "Exportación a R2 encolada")}>Subir a R2</button>

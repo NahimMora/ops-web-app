@@ -16,6 +16,13 @@ const schema = z.object({
   // instead of waiting for the next fixed polling tick.
   OPS_AGENT_POLL_MS: z.coerce.number().int().min(1000).max(25000).default(20000),
   OPS_AGENT_HEARTBEAT_MS: z.coerce.number().int().min(3000).max(60000).default(10000),
+  // How many claim/execute loops run in parallel in this one agent process.
+  // Safe to raise: the server already refuses to hand out two commands that
+  // share the same resourceKey (see resourceKeyFor in packages/contracts),
+  // so raising this only lets genuinely independent work (e.g. a scrape and
+  // a publish) run at the same time — it never causes two WhatsApp sends or
+  // two publishes to run concurrently.
+  OPS_AGENT_CONCURRENCY: z.coerce.number().int().min(1).max(8).default(3),
   OPS_LOCAL_API_URL: z.string().url().default("http://127.0.0.1:8000"), OPS_LOCAL_API_TOKEN: z.string().default(""),
   OPS_LOCAL_API_USERNAME: z.string().min(1).max(100).default("admin"), DASHBOARD_PASSWORD: z.string().default(""),
   OPS_R2_VIDEO_PREFIX: z.string().regex(/^[a-zA-Z0-9/_-]+$/).default("ops/videos"),
@@ -26,7 +33,7 @@ const schema = z.object({
 const raw = schema.parse(process.env);
 export const agentConfig = {
   serverUrl: raw.OPS_AGENT_SERVER_URL.replace(/\/$/, ""), id: raw.OPS_AGENT_ID, token: raw.OPS_AGENT_TOKEN,
-  pollMs: raw.OPS_AGENT_POLL_MS, heartbeatMs: raw.OPS_AGENT_HEARTBEAT_MS,
+  pollMs: raw.OPS_AGENT_POLL_MS, heartbeatMs: raw.OPS_AGENT_HEARTBEAT_MS, concurrency: raw.OPS_AGENT_CONCURRENCY,
   localApiUrl: raw.OPS_LOCAL_API_URL.replace(/\/$/, ""), localApiToken: raw.OPS_LOCAL_API_TOKEN,
   localApiUsername: raw.OPS_LOCAL_API_USERNAME, localApiPassword: raw.DASHBOARD_PASSWORD,
   r2: {

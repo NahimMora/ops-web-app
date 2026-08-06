@@ -19,8 +19,10 @@ import {
 } from "./api";
 import { ManualNews, Prepared, Scrapers, WhatsAppSelector, WordPressShare, normalizeGroups } from "./content";
 import {
+  AlertBanner,
   Badge,
   Card,
+  computeOpsAlerts,
   Empty,
   Field,
   PlatformChooser,
@@ -135,6 +137,7 @@ export function App() {
   if (!user) return <Login onLogin={setUser} />;
 
   const snapshots = Object.fromEntries((dashboard?.snapshots ?? []).map((snapshot: any) => [snapshot.key, snapshot]));
+  const opsAlerts = computeOpsAlerts(dashboard, snapshots);
   const scopedNavGroups = navGroupsForRole(user.role);
   const scopedNav = scopedNavGroups.flatMap((group) => group.items);
   const currentPage = scopedNav.find((item) => item.id === tab) ?? scopedNav[0] ?? nav[0]!;
@@ -187,6 +190,7 @@ export function App() {
 
         <main className="workspace">
           <div className="page-heading"><div><p className="eyebrow">HolaSalta Operations</p><h1>{currentPage.label}</h1><p>{currentPage.description}</p></div><button className="refresh-button" onClick={() => void refresh()}>Actualizar vista</button></div>
+          <AlertBanner alerts={opsAlerts} />
           {error && <div className="alert error">{error}<button onClick={() => setError("")}>×</button></div>}
           {notice && <div className="alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
           {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} navigate={navigate} />}

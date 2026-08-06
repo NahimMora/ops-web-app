@@ -246,6 +246,97 @@ export function Empty({ text, detail }: { text: string; detail?: string }) {
   return <div className="empty"><strong>{text}</strong>{detail && <span>{detail}</span>}</div>;
 }
 
+export type OpsAlert = { id: string; tone: "critical" | "warning"; message: string };
+
+const PLATFORM_LABELS: Record<string, string> = { whatsapp: "WhatsApp", x: "X" };
+// A job that's been "actively" processing for this long without its
+// updated_at moving is more likely stuck than genuinely still working —
+// mirrors the kind of stall found in the WhatsApp publish pipeline in
+// practice (a job sitting at 95% for well over an hour).
+const STALE_JOB_MS = 20 * 60 * 1000;
+
+function toItems(payload: unknown): ContentItem[] {
+  if (Array.isArray(payload)) return payload.filter((item) => item && typeof item === "object");
+  if (!payload || typeof payload !== "object") return [];
+  const record = payload as Record<string, unknown>;
+  for (const key of ["items", "jobs", "pending", "articles"]) {
+    if (Array.isArray(record[key])) return (record[key] as unknown[]).filter((item) => item && typeof item === "object") as ContentItem[];
+  }
+  return [];
+}
+
+/**
+ * Derives operator-facing alerts purely from data the dashboard already
+ * polls every few seconds (no extra backend calls). Surfaces the silent
+ * failure modes that otherwise only show up if someone happens to open the
+ * right tab: the bridge PC being unreachable, WhatsApp/X needing a manual
+ * QR re-login, a worker stuck in an error state, Instagram posts waiting on
+ * manual review, and local jobs that stopped making progress.
+ */
+export function computeOpsAlerts(dashboard: any, snapshots: SnapshotMap): OpsAlert[] {
+  const agentOnline = Boolean(dashboard?.agent?.online);
+  if (!agentOnline) {
+    return [{ id: "agent-offline", tone: "critical", message: "El agente local está desconectado: nada se está preparando ni publicando en este momento." }];
+  }
+
+  const alerts: OpsAlert[] = [];
+  const status = snapshots["automation.status"]?.payload ?? {};
+  const runtimeStatus = String(status?.status ?? "unknown");
+  if (!["running", "healthy"].includes(runtimeStatus)) {
+    alerts.push({ id: "runtime-stopped", tone: "warning", message: "La automatización local (WhatsApp/X) está detenida." });
+  }
+
+  const platforms = status?.platforms ?? {};
+  for (const key of Object.keys(PLATFORM_LABELS)) {
+    const platform = platforms?.[key];
+    if (!platform) continue;
+    const label = PLATFORM_LABELS[key];
+    if (platform.needs_auth) {
+      alerts.push({ id: `${key}-needs-auth`, tone: "critical", message: `${label} necesita reautenticación manual (escanear QR/iniciar sesión) para poder publicar.` });
+    } else if (["error", "degraded"].includes(String(platform.worker_status))) {
+      alerts.push({
+        id: `${key}-worker-error`,
+        tone: "warning",
+        message: `El worker de ${label} está en estado "${platform.worker_status}"${platform.last_error ? `: ${platform.last_error}` : "."}`,
+      });
+    }
+  }
+
+  const pendingCount = toItems(snapshots["instagram.pending"]?.payload).length;
+  if (pendingCount > 0) {
+    alerts.push({ id: "ig-pending", tone: "warning", message: `Hay ${pendingCount} publicación(es) de Instagram pendiente(s) de revisión manual.` });
+  }
+
+  const now = Date.now();
+  const staleJobs = toItems(snapshots["automation.jobs"]?.payload).filter((job) => {
+    if (!["publishing", "processing", "preparing", "enhancing"].includes(String(job.status))) return false;
+    const updated = parseTimestamp(job.updated_at);
+    return updated !== null && now - updated > STALE_JOB_MS;
+  });
+  if (staleJobs.length > 0) {
+    alerts.push({
+      id: "stale-jobs",
+      tone: "warning",
+      message: `${staleJobs.length} trabajo(s) local(es) llevan más de 20 minutos sin avanzar; revise la pestaña Automatización.`,
+    });
+  }
+
+  return alerts;
+}
+
+export function AlertBanner({ alerts }: { alerts: OpsAlert[] }) {
+  if (!alerts.length) return null;
+  return (
+    <div className="ops-alert-stack">
+      {alerts.map((alert) => (
+        <div key={alert.id} className={`alert ${alert.tone === "critical" ? "error" : "warning"}`}>
+          {alert.message}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Stat({ label, value, tone = "neutral", detail }: any) {
   return <div className={`stat ${tone}`}><span>{label}</span><strong>{value}</strong>{detail && <small>{detail}</small>}</div>;
 }

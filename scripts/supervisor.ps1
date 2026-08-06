@@ -38,12 +38,26 @@ function Rotate-Log([string]$Path) {
 }
 
 function Get-BackendProcesses {
+  # Matches both the venv launcher (python.exe running the venv's
+  # Scripts\python.exe path) and the interpreter it spawns to actually run
+  # uvicorn on some venv layouts — either can end up as the CommandLine's
+  # process name here since Win32_Process.Name is just the image file name.
   return @(Get-CimInstance Win32_Process | Where-Object {
     $_.Name -eq "python.exe" -and
     $_.CommandLine -match "uvicorn\s+main:app" -and
     $_.CommandLine -match ("--port\s+{0}" -f [regex]::Escape($BackendPort))
   })
 }
+
+# How long the backend is allowed to sit "process exists but /health doesn't
+# respond" before we treat it as hung rather than just slow to start, and
+# force-kill it so the next loop iteration launches a clean replacement.
+# Without this, a genuinely deadlocked backend (observed for 18+ minutes on
+# 2026-08-03, per supervisor.log) sits unrecovered forever: the existing
+# "don't start a duplicate" guard is correct for a slow-starting process but
+# has no expiry, so it never distinguishes "still starting" from "hung."
+$BackendUnhealthyGraceSeconds = 180
+$backendUnhealthySince = $null
 
 if (-not (Test-Path -LiteralPath $AgentConfig)) { throw "Falta .secrets\agent.env. Ejecute npm run secrets:generate." }
 if (-not (Test-Path -LiteralPath $AgentEntry)) { throw "Falta dist\agent\main.js. Ejecute npm run build." }
@@ -56,6 +70,7 @@ Write-SafeLog "Supervisor iniciado."
 
 while ($true) {
   try {
+    Rotate-Log $SupervisorLog
     $backendReady = $false
     try {
       $health = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/health" -f $BackendPort) -TimeoutSec 4
@@ -66,13 +81,26 @@ while ($true) {
       $backendProcesses = Get-BackendProcesses
       if ($backendProcesses.Count -eq 0) {
         Write-SafeLog "Backend local no disponible y sin proceso; iniciando."
+        $backendUnhealthySince = $null
         $env:BACKEND_PORT = $BackendPort
         Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $BackendLauncher) -WindowStyle Hidden | Out-Null
-      } elseif (-not $backendUnhealthyLogged) {
-        Write-SafeLog "Backend local sin respuesta pero con proceso existente; no se inicia duplicado."
-        $backendUnhealthyLogged = $true
+      } else {
+        if ($null -eq $backendUnhealthySince) { $backendUnhealthySince = Get-Date }
+        $unhealthyFor = (Get-Date) - $backendUnhealthySince
+        if ($unhealthyFor.TotalSeconds -ge $BackendUnhealthyGraceSeconds) {
+          Write-SafeLog ("Backend local colgado desde hace {0:N0}s (proceso vivo, /health no responde); forzando reinicio." -f $unhealthyFor.TotalSeconds)
+          foreach ($proc in $backendProcesses) {
+            try { Stop-Process -Id $proc.ProcessId -Force -ErrorAction Stop } catch { Write-SafeLog ("No se pudo terminar PID {0}: {1}" -f $proc.ProcessId, $_.Exception.Message) }
+          }
+          $backendUnhealthySince = $null
+          $backendUnhealthyLogged = $false
+        } elseif (-not $backendUnhealthyLogged) {
+          Write-SafeLog "Backend local sin respuesta pero con proceso existente; no se inicia duplicado."
+          $backendUnhealthyLogged = $true
+        }
       }
     } else {
+      $backendUnhealthySince = $null
       $backendUnhealthyLogged = $false
     }
 

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { EventEmitter } from "node:events";
 import { createReadStream, existsSync } from "node:fs";
 import { mkdir, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -61,6 +62,23 @@ const temporaryUploadCreateSchema = z.object({
   textMode: z.enum(["auto", "manual", "disabled"]).default("auto"),
 }).strict();
 const temporaryUploadIdSchema = z.object({ id: z.string().uuid() });
+
+// Lets /api/agent/commands/claim long-poll instead of the agent hammering
+// a fixed interval: anything that can make a queued command claimable
+// (a new command, a retry, a finished/failed lease freeing its resourceKey)
+// wakes every pending claim request immediately instead of it waiting out
+// its full timeout window.
+const commandAvailability = new EventEmitter();
+commandAvailability.setMaxListeners(0);
+function notifyCommandAvailable() { commandAvailability.emit("changed"); }
+function waitForCommandAvailable(ms: number): Promise<void> {
+  if (ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => { commandAvailability.off("changed", onChanged); resolve(); }, ms);
+    const onChanged = () => { clearTimeout(timer); resolve(); };
+    commandAvailability.once("changed", onChanged);
+  });
+}
 
 export async function createApp(repository: Repository) {
   const app = Fastify({ logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie", "body.password", "body.leaseToken", "body.dataUrl"] }, bodyLimit: 5 * 1024 * 1024, trustProxy: true, requestIdHeader: "x-request-id", genReqId: () => randomUUID() });
@@ -240,7 +258,7 @@ export async function createApp(repository: Repository) {
       commandId: created.command.id,
       errorMessage: null,
     });
-    if (created.created) await repository.appendEvent(created.command.id, "queued", "info", "Carga móvil validada y encolada", { uploadId: upload.id });
+    if (created.created) { await repository.appendEvent(created.command.id, "queued", "info", "Carga móvil validada y encolada", { uploadId: upload.id }); notifyCommandAvailable(); }
     await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "xvideo.upload.finalize", targetType: "temporary_media_upload", targetId: upload.id, result: created.created ? "created" : "reused", metadata: { commandId: created.command.id } });
     return rep.send({ upload: finalized, command: publicCommand(created.command), reused: !created.created });
   });
@@ -256,7 +274,7 @@ export async function createApp(repository: Repository) {
     const payloadHash = sha256(JSON.stringify(payload));
     const result = await repository.createCommand({ id: randomUUID(), type, payload, payloadHash, idempotencyKey: key, priority: parsed.data.priority, requiredCapability: requiredCapability(type), resourceKey: resourceKeyFor(type, payload), createdBy: ctx.user.id, maxAttempts: hasExternalSideEffect(type) ? 1 : 3 });
     if (!safeEqual(result.command.payloadHash, payloadHash)) return rep.code(409).send({ error: "IDEMPOTENCY_CONFLICT", message: "La clave ya fue usada con otro payload" });
-    if (result.created) await repository.appendEvent(result.command.id, "queued", "info", "Comando encolado", { type });
+    if (result.created) { await repository.appendEvent(result.command.id, "queued", "info", "Comando encolado", { type }); notifyCommandAvailable(); }
     await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "command.create", targetType: "command", targetId: result.command.id, result: result.created ? "created" : "reused", metadata: { type } });
     rep.code(result.created ? 201 : 200).send({ command: publicCommand(result.command), created: result.created });
   });
@@ -264,11 +282,29 @@ export async function createApp(repository: Repository) {
   app.get("/api/commands/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); return command ? rep.send({ command: publicCommand(command) }) : rep.code(404).send({ error: "NOT_FOUND" }); });
   app.get("/api/commands/:id/events", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); rep.send({ items: await repository.listEvents(id.data.id, 500) }); });
   app.post("/api/commands/:id/cancel", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.cancelCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_CANCELLABLE" }); await repository.appendEvent(command.id, "cancelled", "warning", "Comando cancelado por el usuario"); rep.send({ command: publicCommand(command) }); });
-  app.post("/api/commands/:id/retry", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.retryCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" }); await repository.appendEvent(command.id, "requeued", "warning", "Reintento solicitado por el usuario"); rep.send({ command: publicCommand(command) }); });
+  app.post("/api/commands/:id/retry", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.retryCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" }); await repository.appendEvent(command.id, "requeued", "warning", "Reintento solicitado por el usuario"); notifyCommandAvailable(); rep.send({ command: publicCommand(command) }); });
   app.get("/api/audit", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ items: await repository.listAudit(500) }); });
 
   app.post("/api/agent/heartbeat", async (req, rep) => { const agent = await requireAgent(req, rep, repository); if (!agent) return; const body = agentHeartbeatSchema.safeParse(req.body); if (!body.success || body.data.agentId !== agent.id) return rep.code(400).send({ error: "INVALID_HEARTBEAT" }); const updated = await repository.heartbeatAgent(agent.id, body.data.version, body.data.capabilities, body.data.localHealth); rep.send({ ok: true, agent: updated && { ...updated, tokenHash: undefined }, serverTime: new Date().toISOString() }); });
-  app.post("/api/agent/commands/claim", async (req, rep) => { const agent = await requireAgent(req, rep, repository); if (!agent) return; const body = z.object({ capabilities: z.array(z.string().min(1).max(100)).max(100) }).safeParse(req.body); if (!body.success) return rep.code(400).send({ error: "INVALID_REQUEST" }); const leaseToken = randomToken(); const command = await repository.claimCommand(agent.id, body.data.capabilities, tokenHash(leaseToken, config.tokenPepper), new Date(Date.now() + 60_000).toISOString()); if (!command) return rep.code(204).send(); await repository.appendEvent(command.id, "claimed", "info", "Comando reclamado por el agente", { agentId: agent.id, attempt: command.attemptCount }); rep.send({ command: publicCommand(command), leaseToken, leaseSeconds: 60 }); });
+  app.post("/api/agent/commands/claim", async (req, rep) => {
+    const agent = await requireAgent(req, rep, repository); if (!agent) return;
+    const body = z.object({ capabilities: z.array(z.string().min(1).max(100)).max(100), waitMs: z.coerce.number().int().min(0).max(25_000).default(0) }).safeParse(req.body);
+    if (!body.success) return rep.code(400).send({ error: "INVALID_REQUEST" });
+    const leaseToken = randomToken(); const leaseHash = tokenHash(leaseToken, config.tokenPepper);
+    const deadline = Date.now() + body.data.waitMs;
+    let command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, new Date(Date.now() + 60_000).toISOString());
+    // Long-poll: instead of replying 204 right away, hold the request open
+    // (up to waitMs) and re-attempt the claim whenever notifyCommandAvailable()
+    // wakes it, so a freshly queued command is picked up immediately instead
+    // of waiting out the agent's next fixed polling tick.
+    while (!command && Date.now() < deadline) {
+      await waitForCommandAvailable(deadline - Date.now());
+      command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, new Date(Date.now() + 60_000).toISOString());
+    }
+    if (!command) return rep.code(204).send();
+    await repository.appendEvent(command.id, "claimed", "info", "Comando reclamado por el agente", { agentId: agent.id, attempt: command.attemptCount });
+    rep.send({ command: publicCommand(command), leaseToken, leaseSeconds: 60 });
+  });
   app.post("/api/agent/commands/:id/start", (req, rep) => agentMutation(req, rep, repository, "start"));
   app.post("/api/agent/commands/:id/heartbeat", (req, rep) => agentMutation(req, rep, repository, "heartbeat"));
   app.post("/api/agent/commands/:id/side-effect", (req, rep) => agentMutation(req, rep, repository, "side-effect"));
@@ -357,6 +393,9 @@ async function agentMutation(request: FastifyRequest, reply: FastifyReply, repos
   }
   if (!command) return reply.code(409).send({ error: "LEASE_LOST_OR_INVALID_STATE" });
   if (action !== "heartbeat") await repository.appendEvent(command.id, action, action === "fail" ? "error" : "info", `Agente reporto ${action}`, sanitizeForLog({ stage: command.currentStage, errorCode: command.errorCode }));
+  // Finishing a command may free its resourceKey, making another queued
+  // command for that same resource claimable — wake any pending long-poll.
+  if (action === "complete" || action === "fail") notifyCommandAvailable();
   reply.send({ command: publicCommand(command) });
 }
 

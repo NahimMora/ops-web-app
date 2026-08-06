@@ -15,7 +15,7 @@ async function snapshotLoop() { while (!stopping) { try { if (!active && (await 
 async function processLoop() {
   while (!stopping) {
     try {
-      const claim = await ops.claim(capabilities); if (!claim) { await delay(agentConfig.pollMs); continue; }
+      const claim = await ops.claim(capabilities, agentConfig.pollMs); if (!claim) continue;
       active = true; const { command, leaseToken } = claim; let stage = "starting"; let progress = 1; let localJobId: string | undefined; let sideEffect = false;
       console.log(`[agent] claimed ${command.id} (${command.type})`); await ops.start(command.id, leaseToken);
       const leaseTimer = setInterval(() => { void ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId).catch((error) => console.error(`[agent] lease heartbeat failed for ${command.id}: ${safeError(error)}`)); }, 20_000); leaseTimer.unref();

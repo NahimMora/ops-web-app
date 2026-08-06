@@ -13,9 +13,11 @@ export type TemporaryMediaUpload = {
 export class OpsClient {
   private headers() { return { Authorization: `Bearer ${agentConfig.token}`, "X-Ops-Agent-Id": agentConfig.id, "Content-Type": "application/json" }; }
   async heartbeat(localHealth: "healthy" | "degraded" | "offline", capabilities: string[], metadata: Record<string, unknown>) { return this.request("/api/agent/heartbeat", { method: "POST", body: JSON.stringify({ agentId: agentConfig.id, version: "1.0.0", capabilities, localHealth, metadata }) }); }
-  async claim(capabilities: string[]): Promise<Claim | null> {
+  async claim(capabilities: string[], waitMs: number): Promise<Claim | null> {
     // Claim is intentionally never retried: a lost response may already contain a valid lease.
-    const response = await this.fetch("/api/agent/commands/claim", { method: "POST", body: JSON.stringify({ capabilities }) }, 1);
+    // Long-poll: the server can hold this open up to waitMs, so give the
+    // request extra headroom beyond the usual fixed timeout.
+    const response = await this.fetch("/api/agent/commands/claim", { method: "POST", body: JSON.stringify({ capabilities, waitMs }) }, 1, 1, waitMs + 8_000);
     if (response.status === 204) return null; if (!response.ok) throw await responseError(response); return response.json() as Promise<Claim>;
   }
   async start(id: string, leaseToken: string, localJobId?: string) { return this.update(id, "start", { leaseToken, localJobId }); }
@@ -36,9 +38,9 @@ export class OpsClient {
   }
   private async update(id: string, action: string, body: unknown) { return this.request(`/api/agent/commands/${encodeURIComponent(id)}/${action}`, { method: "POST", body: JSON.stringify(body) }); }
   private async request(path: string, init: RequestInit) { const response = await this.fetch(path, init); if (!response.ok) throw await responseError(response); return response.status === 204 ? null : response.json(); }
-  private async fetch(path: string, init: RequestInit, maxAttempts = 4, attempt = 1): Promise<Response> {
-    try { const response = await fetch(`${agentConfig.serverUrl}${path}`, { ...init, headers: { ...this.headers(), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(20_000) }); if (response.status >= 500 && attempt < maxAttempts) { await delay(500 * 2 ** attempt + Math.random() * 300); return this.fetch(path, init, maxAttempts, attempt + 1); } return response; }
-    catch (error) { if (attempt < maxAttempts) { await delay(500 * 2 ** attempt + Math.random() * 300); return this.fetch(path, init, maxAttempts, attempt + 1); } throw error; }
+  private async fetch(path: string, init: RequestInit, maxAttempts = 4, attempt = 1, timeoutMs = 20_000): Promise<Response> {
+    try { const response = await fetch(`${agentConfig.serverUrl}${path}`, { ...init, headers: { ...this.headers(), ...(init.headers ?? {}) }, signal: AbortSignal.timeout(timeoutMs) }); if (response.status >= 500 && attempt < maxAttempts) { await delay(500 * 2 ** attempt + Math.random() * 300); return this.fetch(path, init, maxAttempts, attempt + 1, timeoutMs); } return response; }
+    catch (error) { if (attempt < maxAttempts) { await delay(500 * 2 ** attempt + Math.random() * 300); return this.fetch(path, init, maxAttempts, attempt + 1, timeoutMs); } throw error; }
   }
 }
 async function responseError(response: Response) { const text = await response.text(); return new Error(`Ops HTTP ${response.status}: ${text.slice(0, 500)}`); }

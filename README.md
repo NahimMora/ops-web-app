@@ -5,7 +5,7 @@ Panel operativo remoto para `https://ops.holasalta.com`. Hostinger ejecuta una a
 ## Resultado
 
 - Acceso desde celular o computadora con email, contraseña, cookie segura, CSRF y TOTP opcional.
-- Ningún puerto de la PC queda expuesto a Internet. El agente consulta Hostinger por HTTPS cada 5 segundos.
+- Ningún puerto de la PC queda expuesto a Internet. El agente consulta Hostinger por HTTPS con long-polling (reclamo casi instantáneo de comandos nuevos, sin esperar un intervalo fijo).
 - Hostinger no procesa imágenes/videos ni ejecuta navegadores. Conserva únicamente un token R2 separado y limitado al bucket para firmar cargas temporales; las credenciales de WordPress, redes y publicación R2 permanecen en la PC.
 - Los videos se transmiten desde la API local directamente a Cloudflare R2 y quedan descargables desde `holasaltamedia.cc`.
 - MySQL conserva comandos, estados, auditoría y snapshots. Una caída eléctrica no pierde la cola.

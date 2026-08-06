@@ -53,6 +53,33 @@ describe("HTTP API", () => {
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 204]);
   });
 
+  it("wakes a long-poll claim as soon as a command is created, instead of waiting out waitMs", async () => {
+    const { rawAgentToken, password } = await fixture();
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "holasalta@acceso.com", password } });
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+
+    const startedAt = Date.now();
+    const pendingClaim = app!.inject({
+      method: "POST", url: "/api/agent/commands/claim",
+      headers: { authorization: `Bearer ${rawAgentToken}`, "x-ops-agent-id": "pc-holasalta-01" },
+      payload: { capabilities: ["scraping"], waitMs: 5000 },
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    const created = await app!.inject({
+      method: "POST", url: "/api/commands",
+      headers: { cookie, "x-csrf-token": csrf, "idempotency-key": "long-poll-key" },
+      payload: { type: "scraper.titles", payload: { source: "tn", maxArticles: 1 }, priority: 0 },
+    });
+    expect(created.statusCode).toBe(201);
+
+    const claimed = await pendingClaim;
+    expect(claimed.statusCode).toBe(200);
+    expect(claimed.json().command.id).toBe(created.json().command.id);
+    expect(Date.now() - startedAt).toBeLessThan(4000);
+  });
+
   it("returns large dashboard, command and audit bodies without app-level compression", async () => {
     const { repository, password } = await fixture();
     await repository.createCommand({

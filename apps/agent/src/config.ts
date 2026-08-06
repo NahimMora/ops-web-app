@@ -10,7 +10,11 @@ const optionalUrl = z.preprocess((value) => typeof value === "string" && value.t
 
 const schema = z.object({
   OPS_AGENT_SERVER_URL: z.string().url(), OPS_AGENT_ID: z.string().min(1).max(100), OPS_AGENT_TOKEN: z.string().min(32),
-  OPS_AGENT_POLL_MS: z.coerce.number().int().min(1000).max(60000).default(5000),
+  // Doubles as the long-poll wait sent to /api/agent/commands/claim: the
+  // server holds the request open up to this long instead of replying 204
+  // right away, so a freshly queued command is claimed near-instantly
+  // instead of waiting for the next fixed polling tick.
+  OPS_AGENT_POLL_MS: z.coerce.number().int().min(1000).max(25000).default(20000),
   OPS_AGENT_HEARTBEAT_MS: z.coerce.number().int().min(3000).max(60000).default(10000),
   OPS_LOCAL_API_URL: z.string().url().default("http://127.0.0.1:8000"), OPS_LOCAL_API_TOKEN: z.string().default(""),
   OPS_LOCAL_API_USERNAME: z.string().min(1).max(100).default("admin"), DASHBOARD_PASSWORD: z.string().default(""),

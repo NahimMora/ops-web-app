@@ -15,7 +15,16 @@ async function snapshotLoop() { while (!stopping) { try { if (!active && (await 
 async function processLoop() {
   while (!stopping) {
     try {
-      const claim = await ops.claim(capabilities, agentConfig.pollMs); if (!claim) continue;
+      const claim = await ops.claim(capabilities, agentConfig.pollMs);
+      if (!claim) {
+        // Floor delay even though the server is expected to hold the
+        // request open for ~pollMs on an empty queue: if it ever responds
+        // instantly with 204 (an older deployed server that doesn't
+        // understand waitMs yet, a bug, a fast network hiccup), this stops
+        // the loop from turning into an unthrottled request storm.
+        await delay(250);
+        continue;
+      }
       active = true; const { command, leaseToken } = claim; let stage = "starting"; let progress = 1; let localJobId: string | undefined; let sideEffect = false;
       console.log(`[agent] claimed ${command.id} (${command.type})`); await ops.start(command.id, leaseToken);
       const leaseTimer = setInterval(() => { void ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId).catch((error) => console.error(`[agent] lease heartbeat failed for ${command.id}: ${safeError(error)}`)); }, 20_000); leaseTimer.unref();

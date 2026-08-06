@@ -37,6 +37,21 @@ function Rotate-Log([string]$Path) {
   }
 }
 
+function Get-AgentProcesses {
+  # $agentProcess only tracks a process this *script instance* started. If
+  # the supervisor task gets stopped and restarted (a fresh PowerShell
+  # process, $agentProcess starts back at $null), the previous instance's
+  # agent child is still alive but now orphaned from any tracking — the old
+  # "always spawn when $agentProcess is null" logic would launch a second
+  # one on top of it every time, silently, with no error (found running in
+  # pairs after a routine task restart on 2026-08-06). Same fix as
+  # Get-BackendProcesses: check the OS directly, not an in-memory variable.
+  return @(Get-CimInstance Win32_Process | Where-Object {
+    $_.Name -eq "node.exe" -and
+    $_.CommandLine -match [regex]::Escape($AgentEntry)
+  })
+}
+
 function Get-BackendProcesses {
   # Matches both the venv launcher (python.exe running the venv's
   # Scripts\python.exe path) and the interpreter it spawns to actually run
@@ -105,10 +120,17 @@ while ($true) {
     }
 
     if ($null -eq $agentProcess -or $agentProcess.HasExited) {
-      Write-SafeLog "Agente no disponible; iniciando."
-      Rotate-Log $AgentStdoutLog
-      Rotate-Log $AgentStderrLog
-      $agentProcess = Start-Process -FilePath "node.exe" -ArgumentList @($AgentEntry) -WorkingDirectory $OpsRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $AgentStdoutLog -RedirectStandardError $AgentStderrLog
+      $existingAgents = Get-AgentProcesses
+      if ($existingAgents.Count -gt 0) {
+        $adopted = $existingAgents[0]
+        Write-SafeLog ("Agente ya en ejecucion (PID {0}); no se inicia duplicado." -f $adopted.ProcessId)
+        $agentProcess = Get-Process -Id $adopted.ProcessId -ErrorAction SilentlyContinue
+      } else {
+        Write-SafeLog "Agente no disponible; iniciando."
+        Rotate-Log $AgentStdoutLog
+        Rotate-Log $AgentStderrLog
+        $agentProcess = Start-Process -FilePath "node.exe" -ArgumentList @($AgentEntry) -WorkingDirectory $OpsRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $AgentStdoutLog -RedirectStandardError $AgentStderrLog
+      }
     }
   } catch {
     Write-SafeLog ("Error de supervision: " + $_.Exception.GetType().Name)

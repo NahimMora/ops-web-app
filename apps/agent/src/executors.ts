@@ -38,15 +38,17 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
       api,
     ));
     case "news.load_wordpress": {
+      // Importing used to eagerly run the AI editorial-prep pipeline
+      // (caption + preview image) for every wordpress_imported post in
+      // storage — up to 100 OpenAI calls and R2 uploads even though a
+      // typical session only ever shares a handful of the imported posts.
+      // shareWordPress() below already prepares a post on demand, right
+      // before publishing it, so importing only needs to fetch and store
+      // the raw posts.
       await context.progress("wordpress_fetching", 10);
       const result = await api.post(`/api/news/load-from-wordpress?per_page=${Number(p.perPage)}`, {}, 45_000);
-      const stored = await api.get("/api/news/", 30_000);
-      const imported = Array.isArray(stored) ? stored.filter((item) => item?.wordpress_imported) : [];
-      const prepared = imported.length
-        ? await api.post("/api/news/prepare-editorial", { items: imported, persist: true }, 45 * 60_000)
-        : { articles: [], count: 0 };
       await context.progress("wordpress_imported", 90);
-      return ok({ ...result, prepared: prepared.count });
+      return ok(result);
     }
     case "news.save": return ok(await api.post("/api/news/save", p.items, 5 * 60_000));
     case "news.clear_cache": return ok(await api.delete("/api/news/clear-cache"));

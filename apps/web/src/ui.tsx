@@ -1,4 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
+import type { SyntheticEvent } from "react";
 import type { CommandRecord, CommandType } from "../../../packages/contracts/src/index";
 
 export type RunCommand = (
@@ -411,23 +412,32 @@ export function ArticleList({
         const checked = selected.includes(index);
         const image = articleImage(item);
         const body = articleBody(item);
+        const stopToggle = (event: SyntheticEvent) => event.stopPropagation();
         return (
-          <article key={`${articleUrl(item) || articleTitle(item)}-${index}`} className={`${checked ? "selected" : ""} ${editable ? "editable" : ""}`.trim()}>
-            <button className="article-select" onClick={() => onToggle(index)} aria-label={checked ? "Quitar selección" : "Seleccionar"}>
+          <article
+            key={`${articleUrl(item) || articleTitle(item)}-${index}`}
+            className={`${checked ? "selected" : ""} ${editable ? "editable" : ""}`.trim()}
+            role="checkbox"
+            aria-checked={checked}
+            tabIndex={0}
+            onClick={() => onToggle(index)}
+            onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onToggle(index); } }}
+          >
+            <button className="article-select" onClick={(event) => { stopToggle(event); onToggle(index); }} aria-label={checked ? "Quitar selección" : "Seleccionar"} tabIndex={-1}>
               <span>{checked ? "✓" : ""}</span>
             </button>
             <div className="article-media">
               {image
-                ? <a className="article-image-link" href={image} target="_blank" rel="noreferrer" title="Ampliar imagen" onClick={(event) => event.stopPropagation()}><img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} /></a>
+                ? <img src={image} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />
                 : <div className="media-fallback">{sourceLabel(item.source).slice(0, 2).toUpperCase()}</div>}
             </div>
             <div className="article-copy">
               <div className="article-meta"><span>{sourceLabel(item.source)}</span><time>{articleAge(item)}</time></div>
               {editable ? (
                 <>
-                  <input className="article-title-input" value={articleTitle(item)} onChange={(event) => onChange?.(index, { ...item, titulo: event.target.value })} />
-                  <label className="article-editor-field"><span>Extracto</span><textarea value={articleExcerpt(item)} rows={3} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value })} /></label>
-                  <label className="article-editor-field"><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={10} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value) })} /></label>
+                  <input className="article-title-input" value={articleTitle(item)} onClick={stopToggle} onChange={(event) => onChange?.(index, { ...item, titulo: event.target.value, manual_override: true })} />
+                  <label className="article-editor-field" onClick={stopToggle}><span>Extracto</span><textarea value={articleExcerpt(item)} rows={3} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value, manual_override: true })} /></label>
+                  <label className="article-editor-field" onClick={stopToggle}><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={10} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value), manual_override: true })} /></label>
                 </>
               ) : (
                 <>

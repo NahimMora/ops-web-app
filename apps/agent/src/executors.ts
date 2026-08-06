@@ -79,15 +79,14 @@ export async function executeCommand(command: CommandRecord, api: LocalApi, cont
 }
 
 async function publishNews(p: Record<string, any>, api: LocalApi, ctx: ExecutionContext) {
-  let directNewsItems = p.directNewsItems;
-  if (Array.isArray(directNewsItems) && directNewsItems.length) {
-    const prepared = await api.post(
-      "/api/news/prepare-editorial",
-      { items: directNewsItems, persist: true },
-      45 * 60_000,
-    );
-    directNewsItems = prepared.articles;
-  }
+  // "Preparar" no longer runs the full editorial rewrite (just uploads the
+  // raw image to R2 so the card preview loads), so re-POSTing to
+  // prepare-editorial here would only re-check that same image for no
+  // reason. /api/publish/ now always runs the full editorial identity pass
+  // itself before dispatching to any platform (see routes/publishing.py's
+  // run_legacy_scripts), so publish can go straight there with whatever's
+  // in Preparadas (raw title/body/image, untouched by AI).
+  const directNewsItems = p.directNewsItems;
   await ctx.sideEffect();
   const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis }, 60_000);
   const jobId = String(queued.job_id); await ctx.progress("local_job_queued", 5, jobId);
@@ -100,12 +99,9 @@ async function shareWordPress(p: Record<string, any>, api: LocalApi, ctx: Execut
   if (post.id) {
     post = await api.get(`/api/wordpress/posts/${encodeURIComponent(String(post.id))}`, 30_000);
   }
-  const prepared = await api.post(
-    "/api/news/prepare-editorial",
-    { items: [post], persist: true },
-    15 * 60_000,
-  );
-  post = prepared.articles?.[0] ?? post;
+  // /api/publish/ runs the full editorial identity pass itself (title,
+  // body, Instagram caption, preview image) before publishing — no need to
+  // pre-warm it via prepare-editorial, which is now just a raw-image upload.
   await ctx.sideEffect();
   const queued = await api.post("/api/publish/", {
     selected_indices: [],

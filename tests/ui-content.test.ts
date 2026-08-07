@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { articleAge, extractArticles, relativeAge } from "../apps/web/src/ui.js";
+import { articleAge, extractArticles, relativeAge, stageLabel } from "../apps/web/src/ui.js";
 import { pickDefaultGroupSet } from "../apps/web/src/content.js";
 
 describe("content presentation helpers", () => {
@@ -28,5 +28,18 @@ describe("content presentation helpers", () => {
     expect(pickDefaultGroupSet(sets)?.id).toBe("default");
     expect(pickDefaultGroupSet(sets.slice(0, 1))?.id).toBe("first");
     expect(pickDefaultGroupSet([])).toBeNull();
+  });
+
+  it("passes an already-human-readable prefixed stage through verbatim instead of title-casing it", () => {
+    expect(stageLabel("video_publish:Instagram: procesando video (intento 12/60)")).toBe(
+      "Instagram: procesando video (intento 12/60)",
+    );
+    expect(stageLabel("video_publish:X: enviando video al worker")).toBe("X: enviando video al worker");
+  });
+
+  it("falls back to humanizing a plain machine-style stage key", () => {
+    expect(stageLabel("video_render")).toBe("Video Render");
+    expect(stageLabel("news_publish")).toBe("News Publish");
+    expect(stageLabel("")).toBe("");
   });
 });

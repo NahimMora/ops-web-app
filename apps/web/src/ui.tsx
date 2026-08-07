@@ -348,7 +348,7 @@ export function Progress({ command }: { command?: CommandRecord | null }) {
   return (
     <div className="command-progress">
       <div><span style={{ width: `${percent}%` }} /></div>
-      <p><Badge status={command.status} /><span>{humanizeKey(command.currentStage || "queued")}</span><strong>{percent}%</strong></p>
+      <p><Badge status={command.status} /><span>{stageLabel(command.currentStage || "queued")}</span><strong>{percent}%</strong></p>
       {command.errorMessage && <div className="inline-error">{command.errorMessage}</div>}
     </div>
   );
@@ -559,6 +559,29 @@ function formatValue(value: unknown): string {
 
 function humanizeKey(value: string) {
   return value.replace(/[._-]+/g, " ").replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+// Some stages (currently only the video publish stage) carry an already
+// human-readable, specific message after a "prefix:" marker — e.g.
+// "video_publish:Instagram: procesando video (intento 12/60)" — instead of
+// a plain machine key. Detect and pass those through verbatim instead of
+// running them through humanizeKey's blunt per-word capitalization.
+export function stageLabel(value: string): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const prefixed = raw.match(/^[a-z_]+:(.+)$/s);
+  if (prefixed) return prefixed[1].trim();
+  return humanizeKey(raw);
+}
+
+export function MiniProgressBar({ label, percent, indeterminate = false }: { label: string; percent?: number; indeterminate?: boolean }) {
+  const pct = Math.max(0, Math.min(100, percent ?? 0));
+  return (
+    <div className={`mini-progress${indeterminate ? " indeterminate" : ""}`} role="status">
+      <div><span style={indeterminate ? undefined : { width: `${pct}%` }} /></div>
+      <p><span>{label}</span>{!indeterminate && <strong>{Math.round(pct)}%</strong>}</p>
+    </div>
+  );
 }
 
 function redact(value: unknown): unknown {

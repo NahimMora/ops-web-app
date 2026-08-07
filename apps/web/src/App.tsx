@@ -25,6 +25,7 @@ import {
   computeOpsAlerts,
   Empty,
   Field,
+  MiniProgressBar,
   PlatformChooser,
   Progress,
   ReadableData,
@@ -34,6 +35,7 @@ import {
   TechnicalDetails,
   commandLabel,
   shortDate,
+  stageLabel,
   statusLabel,
   type ContentItem,
   type RunCommand,
@@ -346,8 +348,8 @@ function Automation({ snapshots, run }: { snapshots: Record<string, any>; run: R
                   <tr key={id}>
                     <td><strong>{String(job.title ?? job.type ?? "Trabajo local")}</strong><small className="command-code">{id.slice(0, 12)}</small></td>
                     <td><Badge status={String(job.status ?? "unknown")} /></td>
-                    <td>{String(job.current_stage ?? "—")}</td>
-                    <td>{Number(job.progress_percent ?? 0)}%</td>
+                    <td>{stageLabel(String(job.current_stage ?? "")) || "—"}</td>
+                    <td><div className="progress-cell"><div><span style={{ width: `${Math.max(0, Math.min(100, Number(job.progress_percent ?? 0)))}%` }} /></div><small>{Number(job.progress_percent ?? 0)}%</small></div></td>
                     <td>{shortDate(job.updated_at)}</td>
                     <td>{active && <button onClick={() => confirmed("¿Cancelar este trabajo local?") && void run("automation.job.cancel", { jobId: id })}>Cancelar</button>}</td>
                   </tr>
@@ -497,12 +499,7 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
             <button className="primary wide" disabled={!url.trim() || Boolean(localFile)} onClick={() => void createSingle()}>Procesar URL</button>
             <button className="primary wide" disabled={!localFile || Boolean(url.trim()) || Boolean(uploadState && uploadProgress < 100)} onClick={() => void createFromFile()}>Cargar archivo</button>
           </div>
-          {uploadState && (
-            <div className="upload-progress" role="status">
-              <span>{uploadState}</span>
-              <progress max={100} value={uploadProgress} />
-            </div>
-          )}
+          {uploadState && <MiniProgressBar label={uploadState} percent={uploadProgress} />}
           {uploadError && <div className="inline-error">{uploadError}</div>}
         </Card>
 
@@ -637,14 +634,18 @@ function VideoJobCard({ job, selected, onSelected, platforms, groups, groupSet, 
   const previewStale = isPreviewStale(job);
   const previewNeedsRetry = job.preview_upload_status === "error" || previewStale;
   const errorMessage = videoErrorMessage(job);
-  const renderProgress = job.status === "processing" ? Number(job.render_progress_percent ?? 0) : null;
+  const status = String(job.status ?? "");
+  const renderProgress = status === "processing" ? Number(job.render_progress_percent ?? 0) : null;
+  const publishing = status === "publishing";
+  const publishStep = stageLabel(String(job.publish_step ?? "")) || "Publicando…";
   return (
     <article className={`video-card ${selected ? "selected" : ""}`}>
       <button className="article-select" onClick={onSelected}><span>{selected ? "✓" : ""}</span></button>
       <div className="video-card-head"><Badge status={String(job.status ?? "unknown")} /><small>{shortDate(job.updated_at ?? job.created_at)}</small></div>
       {renderProgress !== null && renderProgress > 0 && (
-        <div className="upload-progress" role="status"><span>Armando el video…</span><progress max={100} value={renderProgress} /></div>
+        <MiniProgressBar label="Armando el video…" percent={renderProgress} />
       )}
+      {publishing && <MiniProgressBar label={publishStep} indeterminate />}
       {errorMessage && <div className="inline-error" role="alert">{errorMessage}</div>}
       {job.preview_url
         && job.preview_upload_status === "ready"

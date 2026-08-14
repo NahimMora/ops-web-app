@@ -728,7 +728,6 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
               <option value="failed">Fallidos</option>
               <option value="requires_attention">Requieren atención</option>
             </select>
-            <button onClick={() => void refresh()}>Actualizar</button>
             <button className="danger-ghost" disabled={!clearableCount || clearing} onClick={() => void clearFailed()}>{clearing ? "Borrando…" : `Limpiar fallidos${clearableCount ? ` (${clearableCount})` : ""}`}</button>
           </div>
         </div>

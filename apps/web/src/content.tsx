@@ -393,12 +393,6 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
 
   return (
     <div className="flow-page manual-news-page">
-      <div className="flow-steps manual-flow-steps" aria-label="Flujo de publicación manual">
-        <div className="active"><span>1</span><strong>Redactar y editar</strong></div>
-        <div className={draft.image.trim() ? "active" : ""}><span>2</span><strong>Procesar imagen</strong></div>
-        <div className={platforms.length ? "active" : ""}><span>3</span><strong>Publicar en destinos</strong></div>
-      </div>
-
       <Card title="Nueva noticia" eyebrow="Carga manual">
         <p className="card-intro">Completá la nota. Al confirmar se enviará al mismo pipeline editorial que las demás noticias.</p>
           <form onSubmit={review} noValidate>

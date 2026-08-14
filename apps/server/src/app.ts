@@ -37,6 +37,24 @@ function isCommandTypeAllowedForRole(role: "admin" | "operator" | "viewer", type
   return false;
 }
 
+// Manual news items carry no WordPress author of their own, so the
+// publisher backend falls back to WP_DEFAULT_AUTHOR_ID for every post. For
+// the manual-publish flow we know who is logged in, so stamp the WordPress
+// author id onto each manual item here based on the authenticated user's
+// email — the backend's post_adapter reads it from `wp_author_id` and only
+// falls back to the env default when it's absent.
+const MANUAL_AUTHOR_ID_BY_EMAIL: Record<string, number> = {
+  "lourdes@acceso.com": 4,
+};
+function withManualAuthor(payload: Record<string, unknown>, email: string): Record<string, unknown> {
+  const authorId = MANUAL_AUTHOR_ID_BY_EMAIL[email.trim().toLowerCase()];
+  if (!authorId || !Array.isArray(payload.directNewsItems)) return payload;
+  const directNewsItems = (payload.directNewsItems as Array<Record<string, unknown>>).map((item) =>
+    item && item.es_manual ? { ...item, wp_author_id: authorId } : item,
+  );
+  return { ...payload, directNewsItems };
+}
+
 const idSchema = z.object({ id: z.string().min(1).max(200) });
 const snapshotSchema = z.object({ key: z.string().min(1).max(190), revision: z.number().int().min(0), schemaVersion: z.number().int().min(1).max(100).default(1), payload: z.unknown(), contentHash: z.string().regex(/^[a-f0-9]{64}$/), capturedAt: z.string().datetime() }).strict();
 const manualImageSchema = z.object({ dataUrl: z.string().min(1).max(4_300_000), fileName: z.string().min(1).max(200) }).strict();
@@ -270,6 +288,7 @@ export async function createApp(repository: Repository) {
     if (!isCommandTypeAllowedForRole(ctx.user.role, type)) return rep.code(403).send({ error: "FORBIDDEN", message: "Tu rol no puede crear este tipo de comando." });
     let payload: Record<string, unknown>;
     try { payload = parseCommandPayload(type, parsed.data.payload); } catch (error) { return rep.code(400).send({ error: "INVALID_PAYLOAD", message: error instanceof Error ? error.message : "Payload invalido" }); }
+    if (type === "news.publish") payload = withManualAuthor(payload, ctx.user.email);
     const key = String(req.headers["idempotency-key"] ?? "").trim(); if (!key || key.length > 190) return rep.code(400).send({ error: "IDEMPOTENCY_KEY_REQUIRED" });
     const payloadHash = sha256(JSON.stringify(payload));
     const result = await repository.createCommand({ id: randomUUID(), type, payload, payloadHash, idempotencyKey: key, priority: parsed.data.priority, requiredCapability: requiredCapability(type), resourceKey: resourceKeyFor(type, payload), createdBy: ctx.user.id, maxAttempts: hasExternalSideEffect(type) ? 1 : 3 });

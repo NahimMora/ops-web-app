@@ -143,6 +143,61 @@ describe("HTTP API", () => {
     expect(image.rawPayload.subarray(0, 8)).toEqual(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
   });
 
+  it("stamps the WordPress author id onto manual news items for mapped operator emails", async () => {
+    const { repository, password } = await fixture();
+    const operatorPassword = "Operator-Test-Password-99!";
+    await repository.initialize({
+      adminEmail: "holasalta@acceso.com",
+      passwordHash: await hashPassword(password),
+      agentId: "pc-holasalta-01",
+      agentName: "PC",
+      agentTokenHash: tokenHash("test-agent-token-with-at-least-thirty-two-bytes", "development-token-pepper-change-me"),
+      extraUsers: [{ email: "lourdes@acceso.com", passwordHash: await hashPassword(operatorPassword), displayName: "Lourdes", role: "operator" }],
+    });
+
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "lourdes@acceso.com", password: operatorPassword } });
+    expect(login.statusCode).toBe(200);
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+    const manualItem = { titulo: "Nota manual", es_manual: true, origen: "manual" };
+
+    const created = await app!.inject({
+      method: "POST", url: "/api/commands",
+      headers: { cookie, "x-csrf-token": csrf, "idempotency-key": "manual-author-key" },
+      payload: { type: "news.publish", payload: { selectedIndices: [], directNewsItems: [manualItem], platforms: ["web"] } },
+    });
+    expect(created.statusCode).toBe(201);
+    const stored = await repository.getCommand(created.json().command.id);
+    expect((stored?.payload as any).directNewsItems[0]).toMatchObject({ titulo: "Nota manual", wp_author_id: 4 });
+  });
+
+  it("leaves the WordPress author untouched for operators without an author mapping", async () => {
+    const { repository, password } = await fixture();
+    const operatorPassword = "Operator-Test-Password-99!";
+    await repository.initialize({
+      adminEmail: "holasalta@acceso.com",
+      passwordHash: await hashPassword(password),
+      agentId: "pc-holasalta-01",
+      agentName: "PC",
+      agentTokenHash: tokenHash("test-agent-token-with-at-least-thirty-two-bytes", "development-token-pepper-change-me"),
+      extraUsers: [{ email: "otro@acceso.com", passwordHash: await hashPassword(operatorPassword), displayName: "Otro", role: "operator" }],
+    });
+
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "otro@acceso.com", password: operatorPassword } });
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+    const manualItem = { titulo: "Nota manual", es_manual: true, origen: "manual" };
+
+    const created = await app!.inject({
+      method: "POST", url: "/api/commands",
+      headers: { cookie, "x-csrf-token": csrf, "idempotency-key": "manual-author-key-2" },
+      payload: { type: "news.publish", payload: { selectedIndices: [], directNewsItems: [manualItem], platforms: ["web"] } },
+    });
+    expect(created.statusCode).toBe(201);
+    const stored = await repository.getCommand(created.json().command.id);
+    expect((stored?.payload as any).directNewsItems[0]).not.toHaveProperty("wp_author_id");
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

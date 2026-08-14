@@ -335,6 +335,18 @@ tr.clickable:hover { background: var(--pink-soft); }
 .data-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; padding: 9px 10px; border: 1px solid var(--border-soft); border-radius: 9px; background: #18131e; }
 .data-row span { overflow: hidden; color: var(--muted); font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
 .data-row strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.manual-history-list { display: grid; gap: 10px; }
+.manual-history-item { border: 1px solid var(--border-soft); border-radius: 12px; padding: 12px 14px; background: #16111c; }
+.manual-history-item summary { display: flex; align-items: center; justify-content: space-between; gap: 12px; cursor: pointer; list-style: none; }
+.manual-history-item summary::-webkit-details-marker { display: none; }
+.manual-history-title { overflow: hidden; font-size: 12px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+.manual-history-meta { display: flex; flex-shrink: 0; align-items: center; gap: 8px; color: var(--muted); font-size: 9px; white-space: nowrap; }
+.manual-history-body { margin-top: 10px; }
+.publish-platform-summary { display: grid; gap: 6px; margin: 8px 0; }
+.platform-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 8px 10px; border: 1px solid var(--border-soft); border-radius: 9px; background: #18131e; font-size: 10px; }
+.platform-row.good strong { color: var(--green); }
+.platform-row.bad strong { color: var(--red); }
+.platform-row.warn strong { color: var(--yellow); }
 .whatsapp-box { margin-top: 13px; border: 1px solid #3c3048; border-radius: 13px; padding: 13px; background: #17121d; }
 .whatsapp-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .whatsapp-head > div { display: grid; gap: 2px; }

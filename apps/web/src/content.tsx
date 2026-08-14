@@ -11,14 +11,18 @@ import {
 } from "./manual-news";
 import {
   ArticleList,
+  Badge,
   Card,
   Empty,
   Field,
+  PLATFORM_OPTIONS,
   PlatformChooser,
   Progress,
+  PublishPlatformSummary,
   ResultSummary,
   ReviewModal,
   SOURCE_OPTIONS,
+  Stat,
   TechnicalDetails,
   articleExcerpt,
   articleImage,
@@ -298,7 +302,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   );
 }
 
-export function ManualNews({ commands, snapshots, run }: ContentProps) {
+export function ManualNews({ commands, history, snapshots, run }: ContentProps & { history: CommandRecord[] }) {
   const [draft, setDraft] = useState<ManualNewsDraft>(() => createManualNewsDraft());
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -494,6 +498,10 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
         {publishCommand?.result && <><ResultSummary command={publishCommand} /><TechnicalDetails value={publishCommand.result} /></>}
       </Card>
 
+      <Card title="Noticias enviadas" eyebrow="Historial de esta cuenta" className="manual-history-card">
+        <ManualNewsHistory items={history} />
+      </Card>
+
       <ReviewModal
         open={Boolean(reviewItem)}
         title="Publicar noticia manual"
@@ -505,6 +513,47 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
         onConfirm={() => void publish()}
       />
     </div>
+  );
+}
+
+function ManualNewsHistory({ items }: { items: CommandRecord[] }) {
+  if (!items.length) return <Empty text="Todavía no enviaste ninguna noticia manual." detail="Las publicaciones que envíes desde este formulario van a aparecer acá con su estado." />;
+  const active = items.filter((command) => isActive(command)).length;
+  const done = items.filter((command) => isTerminalSuccess(command)).length;
+  const attention = items.filter((command) => ["failed", "requires_attention", "waiting_manual_retry"].includes(command.status)).length;
+  return (
+    <>
+      <section className="queue-summary manual-history-summary">
+        <Stat label="Enviadas" value={items.length} />
+        <Stat label="En curso" value={active} tone={active ? "neutral" : "good"} />
+        <Stat label="Completadas" value={done} tone="good" />
+        <Stat label="Con error o atención" value={attention} tone={attention ? "bad" : "good"} />
+      </section>
+      <div className="manual-history-list">
+        {items.map((command) => {
+          const directNewsItems = (command.payload as any)?.directNewsItems;
+          const item = Array.isArray(directNewsItems) ? directNewsItems[0] : null;
+          const title = item ? articleTitle(item) : "Noticia manual";
+          const platforms: string[] = Array.isArray((command.payload as any)?.platforms) ? (command.payload as any).platforms : [];
+          const destinationLabel = platforms.map((platform) => PLATFORM_OPTIONS.find((option) => option.key === platform)?.label ?? platform).join(", ") || "Sin destinos";
+          return (
+            <details className="manual-history-item" key={command.id}>
+              <summary>
+                <span className="manual-history-title">{title}</span>
+                <span className="manual-history-meta"><Badge status={command.status} />{shortDate(command.createdAt)}</span>
+              </summary>
+              <div className="manual-history-body">
+                <p className="muted">{destinationLabel}</p>
+                {isActive(command) && <Progress command={command} />}
+                {!isActive(command) && Boolean(command.result) && <PublishPlatformSummary command={command} />}
+                {command.errorMessage && <div className="inline-error">{command.errorMessage}</div>}
+                {Boolean(command.result) && <TechnicalDetails value={command.result} />}
+              </div>
+            </details>
+          );
+        })}
+      </div>
+    </>
   );
 }
 

@@ -9,6 +9,7 @@ import {
   getCommandEvents,
   getCommands,
   getDashboard,
+  getMyCommands,
   login,
   logout,
   createTemporaryVideoUpload,
@@ -82,6 +83,7 @@ export function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [dashboard, setDashboard] = useState<any>(null);
   const [commands, setCommands] = useState<CommandRecord[]>([]);
+  const [myNewsCommands, setMyNewsCommands] = useState<CommandRecord[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -90,12 +92,14 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!user) return;
     try {
-      const [nextDashboard, nextHistory] = await Promise.all([
+      const [nextDashboard, nextHistory, nextMyNews] = await Promise.all([
         getDashboard(),
         tab === "commands" ? getCommands() : Promise.resolve(null),
+        getMyCommands("news.publish"),
       ]);
       setDashboard(nextDashboard);
       setCommands(nextHistory?.items ?? nextDashboard.commands ?? []);
+      setMyNewsCommands(nextMyNews.items);
       setError("");
     } catch (cause) {
       setError(message(cause));
@@ -197,7 +201,7 @@ export function App() {
           {notice && <div className="alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
           {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} navigate={navigate} />}
           {tab === "scrapers" && <Scrapers commands={commands} snapshots={snapshots} run={run} />}
-          {tab === "manual-news" && <ManualNews commands={commands} snapshots={snapshots} run={run} />}
+          {tab === "manual-news" && <ManualNews commands={commands} history={myNewsCommands} snapshots={snapshots} run={run} />}
           {tab === "prepared" && <Prepared commands={commands} snapshots={snapshots} run={run} />}
           {tab === "wordpress" && <WordPressShare commands={commands} snapshots={snapshots} run={run} />}
           {tab === "automation" && <Automation snapshots={snapshots} run={run} />}

@@ -379,6 +379,39 @@ export function ReadableData({ value, empty = "Sin datos disponibles" }: { value
   );
 }
 
+function publishPlatformStatus(entry: unknown): { label: string; tone: "good" | "bad" | "warn" | "neutral" } {
+  if (!isRecord(entry)) return { label: "Pendiente", tone: "neutral" };
+  const failed = Number(entry.items_failed ?? entry.messages_failed ?? 0);
+  const success = Number(entry.items_success ?? entry.messages_sent ?? (entry.status === "success" ? 1 : 0));
+  if (failed && success) return { label: "Éxito parcial", tone: "warn" };
+  if (failed) return { label: "Con error", tone: "bad" };
+  return { label: "Listo", tone: "good" };
+}
+
+// The per-item, per-platform result breakdown (`command.result.summary`) is
+// only populated once a news.publish job reaches a terminal status -- the
+// live progress text on Progress's stage line (built server-side from the
+// same summary shape) is what shows real-time detail while it's running.
+export function PublishPlatformSummary({ command }: { command?: CommandRecord | null }) {
+  if (!command) return null;
+  const platforms = Array.isArray((command.payload as any)?.platforms) ? (command.payload as any).platforms as string[] : [];
+  if (!platforms.length) return null;
+  const summary = isRecord(command.result) ? (command.result as any).summary : null;
+  return (
+    <div className="publish-platform-summary">
+      {platforms.map((platform) => {
+        const { label, tone } = publishPlatformStatus(isRecord(summary) ? summary[platform] : null);
+        return (
+          <div className={`platform-row ${tone}`} key={platform}>
+            <span>{PLATFORM_OPTIONS.find((option) => option.key === platform)?.label ?? platform}</span>
+            <strong>{label}</strong>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export function ResultSummary({ command }: { command?: CommandRecord | null }) {
   if (!command) return null;
   const result = command.result;

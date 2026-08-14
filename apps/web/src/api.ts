@@ -17,6 +17,7 @@ export async function bootstrapAuth() { const me = await request<{ user: any }>(
 export async function logout() { await request("/api/auth/logout", { method: "POST", body: "{}" }); csrfToken = ""; }
 export const getDashboard = () => request<any>("/api/dashboard");
 export const getCommands = (limit = 200) => request<{ items: CommandRecord[] }>(`/api/commands?limit=${limit}`);
+export const getMyCommands = (type?: CommandType, limit = 30) => request<{ items: CommandRecord[] }>(`/api/commands/mine?limit=${limit}${type ? `&type=${encodeURIComponent(type)}` : ""}`);
 export const getCommandEvents = (id: string) => request<any>(`/api/commands/${encodeURIComponent(id)}/events`);
 export const getAudit = () => request<any>("/api/audit");
 export const cancelCommand = (id: string) => request<any>(`/api/commands/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" });

@@ -107,6 +107,12 @@ export class MySqlRepository implements Repository {
       : await this.pool.query<DbRow[]>("SELECT * FROM commands ORDER BY created_at DESC LIMIT ?", [limit]);
     return rows.map(mapCommand);
   }
+  async listCommandsByCreator(createdBy: string, limit: number, type?: string) {
+    const [rows] = type
+      ? await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE created_by=? AND type=? ORDER BY created_at DESC LIMIT ?", [createdBy, type, limit])
+      : await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE created_by=? ORDER BY created_at DESC LIMIT ?", [createdBy, limit]);
+    return rows.map(mapCommand);
+  }
   async claimCommand(agentId: string, capabilities: string[], leaseHash: string, leaseExpiresAt: string) {
     if (!capabilities.length) return null;
     const connection = await this.pool.getConnection();

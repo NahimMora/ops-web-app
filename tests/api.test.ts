@@ -198,6 +198,54 @@ describe("HTTP API", () => {
     expect((stored?.payload as any).directNewsItems[0]).not.toHaveProperty("wp_author_id");
   });
 
+  it("scopes /api/commands/mine to the caller's own submissions, not the admin-only global queue", async () => {
+    const { repository, password } = await fixture();
+    const operatorPassword = "Operator-Test-Password-99!";
+    await repository.initialize({
+      adminEmail: "holasalta@acceso.com",
+      passwordHash: await hashPassword(password),
+      agentId: "pc-holasalta-01",
+      agentName: "PC",
+      agentTokenHash: tokenHash("test-agent-token-with-at-least-thirty-two-bytes", "development-token-pepper-change-me"),
+      extraUsers: [{ email: "lourdes@acceso.com", passwordHash: await hashPassword(operatorPassword), displayName: "Lourdes", role: "operator" }],
+    });
+
+    // A command created by someone else (the admin, and of a type the
+    // operator couldn't even submit) must never show up in the operator's
+    // own history.
+    await repository.createCommand({ id: "admin-scraper-command", type: "scraper.titles", payload: { source: "tn", maxArticles: 1 }, payloadHash: "hash-1", idempotencyKey: "admin-key-1", priority: 0, requiredCapability: "scraping", resourceKey: null, createdBy: "bootstrap-admin", maxAttempts: 3 });
+
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "lourdes@acceso.com", password: operatorPassword } });
+    expect(login.statusCode).toBe(200);
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+
+    const unauthorized = await app!.inject({ method: "GET", url: "/api/commands/mine" });
+    expect(unauthorized.statusCode).toBe(401);
+
+    const beforePublish = await app!.inject({ method: "GET", url: "/api/commands/mine", headers: { cookie } });
+    expect(beforePublish.statusCode).toBe(200);
+    expect(beforePublish.json().items).toEqual([]);
+
+    const published = await app!.inject({
+      method: "POST", url: "/api/commands",
+      headers: { cookie, "x-csrf-token": csrf, "idempotency-key": "mine-history-key" },
+      payload: { type: "news.publish", payload: { selectedIndices: [], directNewsItems: [{ titulo: "Nota de Lourdes", es_manual: true }], platforms: ["web"] } },
+    });
+    expect(published.statusCode).toBe(201);
+
+    const afterPublish = await app!.inject({ method: "GET", url: "/api/commands/mine?type=news.publish", headers: { cookie } });
+    expect(afterPublish.statusCode).toBe(200);
+    expect(afterPublish.json().items).toHaveLength(1);
+    expect(afterPublish.json().items[0].id).toBe(published.json().command.id);
+    expect(afterPublish.json().items.some((item: any) => item.id === "admin-scraper-command")).toBe(false);
+
+    // An admin-only command type filter should reject cleanly instead of
+    // silently ignoring the param.
+    const invalidType = await app!.inject({ method: "GET", url: "/api/commands/mine?type=not-a-real-type", headers: { cookie } });
+    expect(invalidType.statusCode).toBe(400);
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

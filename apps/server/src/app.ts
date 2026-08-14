@@ -298,6 +298,16 @@ export async function createApp(repository: Repository) {
     rep.code(result.created ? 201 : 200).send({ command: publicCommand(result.command), created: result.created });
   });
   app.get("/api/commands", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const query = z.object({ limit: z.coerce.number().int().min(1).max(500).default(100), status: commandStatusSchema.optional() }).safeParse(req.query); if (!query.success) return rep.code(400).send({ error: "INVALID_QUERY" }); rep.send({ items: (await repository.listCommands(query.data.limit, query.data.status)).map(publicCommand) }); });
+  // Unlike /api/commands (admin-only), this is scoped to the caller's own
+  // submissions, so any authenticated role can use it -- it's how an
+  // operator restricted to the manual-publish flow sees the news items they
+  // sent, since they have no access to the admin "Cola de trabajos" tab.
+  app.get("/api/commands/mine", async (req, rep) => {
+    const ctx = await auth.requireUser(req, rep); if (!ctx) return;
+    const query = z.object({ limit: z.coerce.number().int().min(1).max(100).default(30), type: z.string().refine(isCommandType).optional() }).safeParse(req.query);
+    if (!query.success) return rep.code(400).send({ error: "INVALID_QUERY" });
+    rep.send({ items: (await repository.listCommandsByCreator(ctx.user.id, query.data.limit, query.data.type)).map(publicCommand) });
+  });
   app.get("/api/commands/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); return command ? rep.send({ command: publicCommand(command) }) : rep.code(404).send({ error: "NOT_FOUND" }); });
   app.get("/api/commands/:id/events", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); rep.send({ items: await repository.listEvents(id.data.id, 500) }); });
   app.post("/api/commands/:id/cancel", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.cancelCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_CANCELLABLE" }); await repository.appendEvent(command.id, "cancelled", "warning", "Comando cancelado por el usuario"); rep.send({ command: publicCommand(command) }); });

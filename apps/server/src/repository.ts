@@ -49,6 +49,7 @@ export interface Repository {
   getCommand(id: string): Promise<CommandInternal | null>;
   listCommands(limit: number, status?: CommandStatus): Promise<CommandInternal[]>;
   listCommandsByCreator(createdBy: string, limit: number, type?: string): Promise<CommandInternal[]>;
+  deleteCommandsByStatus(statuses: CommandStatus[], createdBy?: string): Promise<number>;
   claimCommand(agentId: string, capabilities: string[], leaseTokenHash: string, leaseExpiresAt: string): Promise<CommandInternal | null>;
   startCommand(id: string, leaseTokenHash: string, localJobId?: string): Promise<CommandInternal | null>;
   markSideEffect(id: string, leaseTokenHash: string): Promise<boolean>;
@@ -116,6 +117,13 @@ export class MemoryRepository implements Repository {
   async getCommand(id: string) { return clone(this.commands.get(id) ?? null); }
   async listCommands(limit: number, status?: CommandStatus) { return [...this.commands.values()].filter((c) => !status || c.status === status).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(clone); }
   async listCommandsByCreator(createdBy: string, limit: number, type?: string) { return [...this.commands.values()].filter((c) => c.createdBy === createdBy && (!type || c.type === type)).sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, limit).map(clone); }
+  async deleteCommandsByStatus(statuses: CommandStatus[], createdBy?: string) {
+    const toDelete = [...this.commands.values()].filter((c) => statuses.includes(c.status) && (!createdBy || c.createdBy === createdBy));
+    for (const c of toDelete) this.commands.delete(c.id);
+    const deletedIds = new Set(toDelete.map((c) => c.id));
+    this.events = this.events.filter((e) => !deletedIds.has(e.commandId));
+    return toDelete.length;
+  }
   async claimCommand(agentId: string, capabilities: string[], leaseHash: string, leaseExpiresAt: string) {
     const activeResources = new Set([...this.commands.values()].filter((c) => ["claimed", "running"].includes(c.status) && c.leaseExpiresAt && Date.parse(c.leaseExpiresAt) > Date.now()).map((c) => c.resourceKey).filter(Boolean));
     const command = [...this.commands.values()].filter((c) => c.status === "queued" && capabilities.includes(c.requiredCapability) && (!c.resourceKey || !activeResources.has(c.resourceKey))).sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0];

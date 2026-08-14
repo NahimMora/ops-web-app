@@ -3,6 +3,7 @@ import type { CommandRecord } from "../../../packages/contracts/src/index";
 import {
   bootstrapAuth,
   cancelCommand,
+  clearFailedCommands,
   createCommand,
   enableTotp,
   getAudit,
@@ -682,9 +683,11 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
   const [selected, setSelected] = useState<CommandRecord | null>(null);
   const [events, setEvents] = useState<any[]>([]);
   const [filter, setFilter] = useState("all");
+  const [clearing, setClearing] = useState(false);
   const filtered = filter === "all" ? items : items.filter((item) => item.status === filter);
   const active = items.filter((item) => ["queued", "claimed", "running"].includes(item.status)).length;
   const failed = items.filter((item) => ["failed", "requires_attention", "waiting_manual_retry"].includes(item.status)).length;
+  const clearableCount = items.filter((item) => ["failed", "requires_attention"].includes(item.status)).length;
 
   async function open(item: CommandRecord) {
     setSelected(item);
@@ -692,6 +695,17 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
       setEvents((await getCommandEvents(item.id)).items);
     } catch {
       setEvents([]);
+    }
+  }
+
+  async function clearFailed() {
+    if (!clearableCount || !confirmed(`¿Borrar ${clearableCount} trabajo(s) fallido(s) o que requieren atención? Esta acción no se puede deshacer.`)) return;
+    setClearing(true);
+    try {
+      await clearFailedCommands();
+      await refresh();
+    } finally {
+      setClearing(false);
     }
   }
 
@@ -715,6 +729,7 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
               <option value="requires_attention">Requieren atención</option>
             </select>
             <button onClick={() => void refresh()}>Actualizar</button>
+            <button className="danger-ghost" disabled={!clearableCount || clearing} onClick={() => void clearFailed()}>{clearing ? "Borrando…" : `Limpiar fallidos${clearableCount ? ` (${clearableCount})` : ""}`}</button>
           </div>
         </div>
         {filtered.length ? <CommandTable items={filtered} onOpen={open} /> : <Empty text="No hay trabajos para este filtro" />}

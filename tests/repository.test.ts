@@ -82,4 +82,30 @@ describe("repository concurrency and retry safety", () => {
     expect(finished?.result).toEqual({ ok: 3, failed: 1 });
     expect(await repository.retryCommand("one")).toBeNull();
   });
+
+  it("deletes only failed/requires_attention commands, optionally scoped to one creator, and drops their events too", async () => {
+    const repository = new MemoryRepository(); await repository.initialize(bootstrap);
+    await repository.createCommand({ ...input("failed-admin", "key-failed-admin"), createdBy: "bootstrap-admin" });
+    await repository.createCommand({ ...input("attention-other", "key-attention-other"), createdBy: "someone-else" });
+    await repository.createCommand({ ...input("queued-admin", "key-queued-admin"), createdBy: "bootstrap-admin" });
+    await repository.claimCommand("pc-holasalta-01", ["scraping"], "lease-1", new Date(Date.now() + 60_000).toISOString());
+    await repository.startCommand("failed-admin", "lease-1");
+    await repository.finishCommand("failed-admin", "lease-1", "failed", { errorMessage: "boom" });
+    await repository.claimCommand("pc-holasalta-01", ["scraping"], "lease-2", new Date(Date.now() + 60_000).toISOString());
+    await repository.startCommand("attention-other", "lease-2");
+    await repository.finishCommand("attention-other", "lease-2", "requires_attention", {});
+    await repository.appendEvent("failed-admin", "failed", "error", "boom");
+
+    const deletedForOwnerOnly = await repository.deleteCommandsByStatus(["failed", "requires_attention"], "bootstrap-admin");
+    expect(deletedForOwnerOnly).toBe(1);
+    expect(await repository.getCommand("failed-admin")).toBeNull();
+    expect(await repository.listEvents("failed-admin", 10)).toEqual([]);
+    expect(await repository.getCommand("attention-other")).not.toBeNull();
+    expect(await repository.getCommand("queued-admin")).not.toBeNull();
+
+    const deletedForEveryone = await repository.deleteCommandsByStatus(["failed", "requires_attention"]);
+    expect(deletedForEveryone).toBe(1);
+    expect(await repository.getCommand("attention-other")).toBeNull();
+    expect(await repository.getCommand("queued-admin")).not.toBeNull();
+  });
 });

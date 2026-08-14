@@ -281,6 +281,50 @@ describe("HTTP API", () => {
     expect(cancelOwn.json().command.status).toBe("cancelled");
   });
 
+  it("clears failed/requires_attention commands, scoped to own for operators and to everyone for admins", async () => {
+    const { repository, password } = await fixture();
+    const operatorPassword = "Operator-Test-Password-99!";
+    await repository.initialize({
+      adminEmail: "holasalta@acceso.com",
+      passwordHash: await hashPassword(password),
+      agentId: "pc-holasalta-01",
+      agentName: "PC",
+      agentTokenHash: tokenHash("test-agent-token-with-at-least-thirty-two-bytes", "development-token-pepper-change-me"),
+      extraUsers: [{ email: "lourdes@acceso.com", passwordHash: await hashPassword(operatorPassword), displayName: "Lourdes", role: "operator" }],
+    });
+    await repository.createCommand({ id: "operator-failed", type: "news.publish", payload: {}, payloadHash: "h1", idempotencyKey: "k1", priority: 0, requiredCapability: "publishing:global", resourceKey: null, createdBy: "bootstrap-lourdes@acceso.com", maxAttempts: 3 });
+    await repository.claimCommand("pc-holasalta-01", ["publishing:global"], "lease-a", new Date(Date.now() + 60_000).toISOString());
+    await repository.startCommand("operator-failed", "lease-a");
+    await repository.finishCommand("operator-failed", "lease-a", "failed", { errorMessage: "boom" });
+
+    await repository.createCommand({ id: "admin-attention", type: "scraper.titles", payload: { source: "tn", maxArticles: 1 }, payloadHash: "h2", idempotencyKey: "k2", priority: 0, requiredCapability: "scraping", resourceKey: null, createdBy: "bootstrap-admin", maxAttempts: 3 });
+    await repository.claimCommand("pc-holasalta-01", ["scraping"], "lease-b", new Date(Date.now() + 60_000).toISOString());
+    await repository.startCommand("admin-attention", "lease-b");
+    await repository.finishCommand("admin-attention", "lease-b", "requires_attention", {});
+
+    const operatorLogin = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "lourdes@acceso.com", password: operatorPassword } });
+    const operatorCookie = String(operatorLogin.headers["set-cookie"]).split(";")[0];
+    const operatorCsrf = operatorLogin.json().csrfToken as string;
+
+    const operatorClear = await app!.inject({ method: "POST", url: "/api/commands/clear-failed", headers: { cookie: operatorCookie, "x-csrf-token": operatorCsrf } });
+    expect(operatorClear.statusCode).toBe(200);
+    expect(operatorClear.json().deleted).toBe(1);
+    expect(await repository.getCommand("operator-failed")).toBeNull();
+    expect(await repository.getCommand("admin-attention")).not.toBeNull();
+
+    const adminLogin = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "holasalta@acceso.com", password } });
+    const adminCookie = String(adminLogin.headers["set-cookie"]).split(";")[0];
+    const adminCsrf = adminLogin.json().csrfToken as string;
+
+    const adminClear = await app!.inject({ method: "POST", url: "/api/commands/clear-failed", headers: { cookie: adminCookie, "x-csrf-token": adminCsrf } });
+    expect(adminClear.statusCode).toBe(200);
+    expect(adminClear.json().deleted).toBe(1);
+    expect(await repository.getCommand("admin-attention")).toBeNull();
+
+    const audit = await repository.listAudit(10);
+    expect(audit.filter((entry) => entry.action === "commands.clear_failed")).toHaveLength(2);
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

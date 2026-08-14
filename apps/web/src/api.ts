@@ -22,6 +22,7 @@ export const getCommandEvents = (id: string) => request<any>(`/api/commands/${en
 export const getAudit = () => request<any>("/api/audit");
 export const cancelCommand = (id: string) => request<any>(`/api/commands/${encodeURIComponent(id)}/cancel`, { method: "POST", body: "{}" });
 export const retryCommand = (id: string) => request<any>(`/api/commands/${encodeURIComponent(id)}/retry`, { method: "POST", body: "{}" });
+export const clearFailedCommands = () => request<{ deleted: number }>("/api/commands/clear-failed", { method: "POST", body: "{}" });
 export const setupTotp = () => request<{ secret: string; uri: string }>("/api/auth/totp/setup", { method: "POST", body: "{}" });
 export const enableTotp = (code: string) => request("/api/auth/totp/enable", { method: "POST", body: JSON.stringify({ code }) });
 export const uploadManualNewsImage = (dataUrl: string, fileName: string) => request<{ id: string; url: string; mimeType: string; sizeBytes: number }>("/api/manual-news/images", { method: "POST", body: JSON.stringify({ dataUrl, fileName }) });

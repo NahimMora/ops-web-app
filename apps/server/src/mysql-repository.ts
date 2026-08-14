@@ -113,6 +113,14 @@ export class MySqlRepository implements Repository {
       : await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE created_by=? ORDER BY created_at DESC LIMIT ?", [createdBy, limit]);
     return rows.map(mapCommand);
   }
+  async deleteCommandsByStatus(statuses: CommandStatus[], createdBy?: string) {
+    if (!statuses.length) return 0;
+    const placeholders = statuses.map(() => "?").join(",");
+    const [result] = createdBy
+      ? await this.pool.query<any>(`DELETE FROM commands WHERE status IN (${placeholders}) AND created_by=?`, [...statuses, createdBy])
+      : await this.pool.query<any>(`DELETE FROM commands WHERE status IN (${placeholders})`, statuses);
+    return result.affectedRows ?? 0;
+  }
   async claimCommand(agentId: string, capabilities: string[], leaseHash: string, leaseExpiresAt: string) {
     if (!capabilities.length) return null;
     const connection = await this.pool.getConnection();

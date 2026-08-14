@@ -308,6 +308,18 @@ export async function createApp(repository: Repository) {
     if (!query.success) return rep.code(400).send({ error: "INVALID_QUERY" });
     rep.send({ items: (await repository.listCommandsByCreator(ctx.user.id, query.data.limit, query.data.type)).map(publicCommand) });
   });
+  // Permanently removes terminal failed/requires_attention commands so the
+  // queue doesn't accumulate old incidents. Admins clear the whole queue;
+  // a restricted operator only clears their own -- same ownership split as
+  // the routes below. Deleting cascades to command_events/resource_locks
+  // (ON DELETE CASCADE) and leaves the audit_log entry as the only trace.
+  app.post("/api/commands/clear-failed", async (req, rep) => {
+    const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
+    const statuses: CommandStatus[] = ["failed", "requires_attention"];
+    const deleted = await repository.deleteCommandsByStatus(statuses, ctx.user.role === "admin" ? undefined : ctx.user.id);
+    await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "commands.clear_failed", targetType: "command", targetId: null, result: "deleted", metadata: { count: deleted, scope: ctx.user.role === "admin" ? "all" : "own" } });
+    rep.send({ deleted });
+  });
   // Own-command access below (events/cancel/retry) lets a restricted
   // operator manage what they submitted from their scoped Cola de trabajos,
   // without granting them the admin-only global /api/commands list.

@@ -11,18 +11,14 @@ import {
 } from "./manual-news";
 import {
   ArticleList,
-  Badge,
   Card,
   Empty,
   Field,
-  PLATFORM_OPTIONS,
   PlatformChooser,
   Progress,
-  PublishPlatformSummary,
   ResultSummary,
   ReviewModal,
   SOURCE_OPTIONS,
-  Stat,
   TechnicalDetails,
   articleExcerpt,
   articleImage,
@@ -46,7 +42,7 @@ type ContentProps = {
   run: RunCommand;
 };
 
-const DEFAULT_PLATFORMS = ["web", "instagram", "facebook", "x"];
+const DEFAULT_PLATFORMS = ["web", "instagram", "facebook", "x", "whatsapp"];
 
 export function Scrapers({ commands, snapshots, run }: ContentProps) {
   const [source, setSource] = useState("all");
@@ -183,15 +179,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
 
   return (
     <div className="flow-page">
-      <FlowSteps
-        steps={[
-          { label: "Buscar", complete: titles.length > 0, active: !titles.length },
-          { label: "Preparar", complete: processed.length > 0, active: titles.length > 0 && !processed.length },
-          { label: "Publicar", complete: isTerminalSuccess(publishCommand), active: processed.length > 0 },
-        ]}
-      />
-
-      <Card title="1. Buscar titulares" eyebrow="Descubrimiento" actions={<ViewToggle value={view} onChange={setView} />}>
+      <Card title="Buscar titulares" eyebrow="Descubrimiento" actions={<ViewToggle value={view} onChange={setView} />}>
         <div className="scraper-toolbar">
           <Field label="Fuente">
             <select value={source} onChange={(event) => {
@@ -234,11 +222,11 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
       </Card>
 
       <Card
-        title="2. Preparar y editar"
-        eyebrow="Procesamiento local"
+        title="Preparar y publicar"
+        eyebrow="Procesamiento local y distribución"
         actions={<button className="primary" disabled={!selectedTitles.length || processBusy || searchBusy} onClick={() => void handlePrepare()}>{processBusy ? "Preparando artículos…" : `Preparar ${selectedTitles.length || ""} seleccionados`}</button>}
       >
-        <p className="card-intro">La PC descarga el contenido y las imágenes únicamente de los titulares seleccionados. Al terminar, podés corregir título y extracto en esta misma pantalla.</p>
+        <p className="card-intro">La PC descarga el contenido y las imágenes únicamente de los titulares seleccionados. Al terminar, podés corregir título y extracto acá mismo, elegir destinos y publicar.</p>
         <div className={`stage-status ${processBusy ? "working" : processed.length ? "ready" : "waiting"}`}>
           <strong>{processBusy ? "Preparando el contenido completo" : processed.length ? `${processed.length} artículos listos para publicar` : selectedTitles.length ? `${selectedTitles.length} titulares pendientes de preparar` : "Todavía no hay titulares para preparar"}</strong>
           <span>{processBusy ? "Se están descargando los párrafos y las imágenes. La selección quedará lista automáticamente." : processed.length ? "Ya puede editar acá mismo o publicar abajo; también quedaron guardados en la pestaña Preparadas junto con lo de todas las demás fuentes." : selectedTitles.length ? "Presione Preparar seleccionados para descargar cada artículo." : "Busque titulares y seleccione los que quiera procesar."}</span>
@@ -261,31 +249,33 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
           onChange={(index, item) => setProcessed((current) => current.map((existing, currentIndex) => currentIndex === index ? item : existing))}
         />
         {detailCommand?.result && <TechnicalDetails value={detailCommand.result} label="Ver respuesta técnica del procesamiento" />}
-      </Card>
 
-      <Card title="3. Revisar y publicar" eyebrow="Distribución">
-        <p className="card-intro">Elegí WordPress y las redes donde querés distribuir los artículos seleccionados.</p>
-        <PlatformChooser selected={platforms} onChange={setPlatforms} />
-        {platforms.includes("whatsapp") && (
-          <WhatsAppSelector
-            snapshots={snapshots}
-            selectedIds={selectedGroupIds}
-            selectedSet={selectedGroupSet}
-            onSelectedIds={setSelectedGroupIds}
-            onSelectedSet={setSelectedGroupSet}
-            run={run}
-          />
+        {processed.length > 0 && (
+          <>
+            <p className="card-intro">Elegí WordPress y las redes donde querés distribuir los artículos seleccionados.</p>
+            <PlatformChooser selected={platforms} onChange={setPlatforms} />
+            {platforms.includes("whatsapp") && (
+              <WhatsAppSelector
+                snapshots={snapshots}
+                selectedIds={selectedGroupIds}
+                selectedSet={selectedGroupSet}
+                onSelectedIds={setSelectedGroupIds}
+                onSelectedSet={setSelectedGroupSet}
+                run={run}
+              />
+            )}
+            {platforms.includes("whatsapp") && !selectedGroups.length && <div className="inline-warning">Seleccioná al menos un grupo de WhatsApp antes de publicar.</div>}
+            <div className="publish-footer">
+              <div><strong>{selectedItems.length} artículos listos</strong><span>{platforms.length} destinos seleccionados</span></div>
+              <button className="primary publish-button" disabled={!selectedItems.length || !platforms.length || publishBusy || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => setReviewOpen(true)}>
+                {publishBusy ? "Publicando…" : "Revisar publicación"}
+              </button>
+            </div>
+            <Progress command={publishCommand} />
+            {publishCommand && !isActive(publishCommand) && <ResultSummary command={publishCommand} />}
+            {publishCommand?.result && <TechnicalDetails value={publishCommand.result} label="Ver detalle técnico de la publicación" />}
+          </>
         )}
-        {platforms.includes("whatsapp") && !selectedGroups.length && <div className="inline-warning">Seleccioná al menos un grupo de WhatsApp antes de publicar.</div>}
-        <div className="publish-footer">
-          <div><strong>{selectedItems.length} artículos listos</strong><span>{platforms.length} destinos seleccionados</span></div>
-          <button className="primary publish-button" disabled={!selectedItems.length || !platforms.length || publishBusy || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => setReviewOpen(true)}>
-            {publishBusy ? "Publicando…" : "Revisar publicación"}
-          </button>
-        </div>
-        <Progress command={publishCommand} />
-        {publishCommand && !isActive(publishCommand) && <ResultSummary command={publishCommand} />}
-        {publishCommand?.result && <TechnicalDetails value={publishCommand.result} label="Ver detalle técnico de la publicación" />}
       </Card>
 
       <ReviewModal
@@ -302,7 +292,7 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
   );
 }
 
-export function ManualNews({ commands, history, snapshots, run }: ContentProps & { history: CommandRecord[] }) {
+export function ManualNews({ commands, snapshots, run }: ContentProps) {
   const [draft, setDraft] = useState<ManualNewsDraft>(() => createManualNewsDraft());
   const [platforms, setPlatforms] = useState<string[]>(DEFAULT_PLATFORMS);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
@@ -319,7 +309,6 @@ export function ManualNews({ commands, history, snapshots, run }: ContentProps &
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
   const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
   const publishCommand = commands.find((command) => command.id === publishCommandId);
-  const preview = buildManualNewsItem(draft);
 
   function update<K extends keyof ManualNewsDraft>(key: K, value: ManualNewsDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
@@ -410,9 +399,8 @@ export function ManualNews({ commands, history, snapshots, run }: ContentProps &
         <div className={platforms.length ? "active" : ""}><span>3</span><strong>Publicar en destinos</strong></div>
       </div>
 
-      <section className="manual-editor-grid">
-        <Card title="Nueva noticia" eyebrow="Carga manual">
-          <p className="card-intro">Completá la nota y revisá la vista previa. Al confirmar se enviará al mismo pipeline editorial que las demás noticias.</p>
+      <Card title="Nueva noticia" eyebrow="Carga manual">
+        <p className="card-intro">Completá la nota. Al confirmar se enviará al mismo pipeline editorial que las demás noticias.</p>
           <form onSubmit={review} noValidate>
             <Field label="Título" hint={`${draft.title.length}/240 caracteres`}>
               <input value={draft.title} onChange={(event) => update("title", event.target.value)} maxLength={240} placeholder="Título de la noticia" autoFocus />
@@ -455,24 +443,7 @@ export function ManualNews({ commands, history, snapshots, run }: ContentProps &
               <button className="primary" type="submit" disabled={isActive(publishCommand)}>Revisar publicación</button>
             </div>
           </form>
-        </Card>
-
-        <Card title="Vista previa" eyebrow="Control editorial" className="manual-preview-card">
-          <div className="manual-preview-media">
-            {draft.image.trim()
-              ? <img src={draft.image.trim()} alt="Vista previa de la noticia" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />
-              : <div className="media-fallback">HS</div>}
-          </div>
-          <div className="manual-preview-copy">
-            <div className="article-meta"><span>{draft.category.trim() || "Categoría automática"}</span></div>
-            <h3>{draft.title.trim() || "El título aparecerá aquí"}</h3>
-            {preview.parrafos.length
-              ? <div className="article-body">{preview.parrafos.slice(0, 8).map((paragraph: string, index: number) => <p key={index}>{paragraph}</p>)}</div>
-              : <p className="manual-preview-empty">La vista previa del contenido aparecerá mientras escribís.</p>}
-            {preview.parrafos.length > 8 && <small className="muted">La noticia continúa con {preview.parrafos.length - 8} párrafos más.</small>}
-          </div>
-        </Card>
-      </section>
+      </Card>
 
       <Card title="Destinos de publicación" eyebrow="WordPress y redes" className="publication-controls manual-destinations">
         <PlatformChooser selected={platforms} onChange={(next) => { setPlatforms(next); setFormError(""); }} />
@@ -498,10 +469,6 @@ export function ManualNews({ commands, history, snapshots, run }: ContentProps &
         {publishCommand?.result && <><ResultSummary command={publishCommand} /><TechnicalDetails value={publishCommand.result} /></>}
       </Card>
 
-      <Card title="Noticias enviadas" eyebrow="Historial de esta cuenta" className="manual-history-card">
-        <ManualNewsHistory items={history} />
-      </Card>
-
       <ReviewModal
         open={Boolean(reviewItem)}
         title="Publicar noticia manual"
@@ -513,47 +480,6 @@ export function ManualNews({ commands, history, snapshots, run }: ContentProps &
         onConfirm={() => void publish()}
       />
     </div>
-  );
-}
-
-function ManualNewsHistory({ items }: { items: CommandRecord[] }) {
-  if (!items.length) return <Empty text="Todavía no enviaste ninguna noticia manual." detail="Las publicaciones que envíes desde este formulario van a aparecer acá con su estado." />;
-  const active = items.filter((command) => isActive(command)).length;
-  const done = items.filter((command) => isTerminalSuccess(command)).length;
-  const attention = items.filter((command) => ["failed", "requires_attention", "waiting_manual_retry"].includes(command.status)).length;
-  return (
-    <>
-      <section className="queue-summary manual-history-summary">
-        <Stat label="Enviadas" value={items.length} />
-        <Stat label="En curso" value={active} tone={active ? "neutral" : "good"} />
-        <Stat label="Completadas" value={done} tone="good" />
-        <Stat label="Con error o atención" value={attention} tone={attention ? "bad" : "good"} />
-      </section>
-      <div className="manual-history-list">
-        {items.map((command) => {
-          const directNewsItems = (command.payload as any)?.directNewsItems;
-          const item = Array.isArray(directNewsItems) ? directNewsItems[0] : null;
-          const title = item ? articleTitle(item) : "Noticia manual";
-          const platforms: string[] = Array.isArray((command.payload as any)?.platforms) ? (command.payload as any).platforms : [];
-          const destinationLabel = platforms.map((platform) => PLATFORM_OPTIONS.find((option) => option.key === platform)?.label ?? platform).join(", ") || "Sin destinos";
-          return (
-            <details className="manual-history-item" key={command.id}>
-              <summary>
-                <span className="manual-history-title">{title}</span>
-                <span className="manual-history-meta"><Badge status={command.status} />{shortDate(command.createdAt)}</span>
-              </summary>
-              <div className="manual-history-body">
-                <p className="muted">{destinationLabel}</p>
-                {isActive(command) && <Progress command={command} />}
-                {!isActive(command) && Boolean(command.result) && <PublishPlatformSummary command={command} />}
-                {command.errorMessage && <div className="inline-error">{command.errorMessage}</div>}
-                {Boolean(command.result) && <TechnicalDetails value={command.result} />}
-              </div>
-            </details>
-          );
-        })}
-      </div>
-    </>
   );
 }
 
@@ -851,10 +777,6 @@ function SelectionBar({ shown, selected, label, onChange }: { shown: number[]; s
       </div>
     </div>
   );
-}
-
-function FlowSteps({ steps }: { steps: Array<{ label: string; complete?: boolean; active?: boolean }> }) {
-  return <div className="flow-steps">{steps.map((step, index) => <div key={step.label} className={step.complete ? "complete" : step.active ? "active" : ""}><span>{step.complete ? "✓" : index + 1}</span><strong>{step.label}</strong></div>)}</div>;
 }
 
 function ViewToggle({ value, onChange }: { value: ViewMode; onChange(next: ViewMode): void }) {

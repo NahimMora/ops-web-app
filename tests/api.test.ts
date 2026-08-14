@@ -246,6 +246,41 @@ describe("HTTP API", () => {
     expect(invalidType.statusCode).toBe(400);
   });
 
+  it("lets a restricted operator manage their own command but not someone else's", async () => {
+    const { repository, password } = await fixture();
+    const operatorPassword = "Operator-Test-Password-99!";
+    await repository.initialize({
+      adminEmail: "holasalta@acceso.com",
+      passwordHash: await hashPassword(password),
+      agentId: "pc-holasalta-01",
+      agentName: "PC",
+      agentTokenHash: tokenHash("test-agent-token-with-at-least-thirty-two-bytes", "development-token-pepper-change-me"),
+      extraUsers: [{ email: "lourdes@acceso.com", passwordHash: await hashPassword(operatorPassword), displayName: "Lourdes", role: "operator" }],
+    });
+    const ownCommand = (await repository.createCommand({ id: "operator-own-command", type: "news.publish", payload: { selectedIndices: [], directNewsItems: [{ titulo: "Nota" }], platforms: ["web"] }, payloadHash: "hash-own", idempotencyKey: "own-key", priority: 0, requiredCapability: "publishing:global", resourceKey: null, createdBy: "bootstrap-lourdes@acceso.com", maxAttempts: 3 })).command;
+    const othersCommand = (await repository.createCommand({ id: "admin-owned-command", type: "scraper.titles", payload: { source: "tn", maxArticles: 1 }, payloadHash: "hash-other", idempotencyKey: "other-key", priority: 0, requiredCapability: "scraping", resourceKey: null, createdBy: "bootstrap-admin", maxAttempts: 3 })).command;
+
+    const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "lourdes@acceso.com", password: operatorPassword } });
+    const cookie = String(login.headers["set-cookie"]).split(";")[0];
+    const csrf = login.json().csrfToken as string;
+
+    const getOwn = await app!.inject({ method: "GET", url: `/api/commands/${ownCommand.id}`, headers: { cookie } });
+    expect(getOwn.statusCode).toBe(200);
+    const getOthers = await app!.inject({ method: "GET", url: `/api/commands/${othersCommand.id}`, headers: { cookie } });
+    expect(getOthers.statusCode).toBe(403);
+
+    const eventsOwn = await app!.inject({ method: "GET", url: `/api/commands/${ownCommand.id}/events`, headers: { cookie } });
+    expect(eventsOwn.statusCode).toBe(200);
+    const eventsOthers = await app!.inject({ method: "GET", url: `/api/commands/${othersCommand.id}/events`, headers: { cookie } });
+    expect(eventsOthers.statusCode).toBe(403);
+
+    const cancelOthers = await app!.inject({ method: "POST", url: `/api/commands/${othersCommand.id}/cancel`, headers: { cookie, "x-csrf-token": csrf } });
+    expect(cancelOthers.statusCode).toBe(403);
+    const cancelOwn = await app!.inject({ method: "POST", url: `/api/commands/${ownCommand.id}/cancel`, headers: { cookie, "x-csrf-token": csrf } });
+    expect(cancelOwn.statusCode).toBe(200);
+    expect(cancelOwn.json().command.status).toBe("cancelled");
+  });
+
   it("rate-limits malformed login floods before password work", async () => {
     await fixture();
     const responses = [];

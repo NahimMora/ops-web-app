@@ -29,11 +29,13 @@ import {
   MiniProgressBar,
   PlatformChooser,
   Progress,
+  PublishPlatformSummary,
   ReadableData,
   ResultSummary,
   Stat,
   StatusDot,
   TechnicalDetails,
+  articleTitle,
   commandLabel,
   shortDate,
   stageLabel,
@@ -65,10 +67,11 @@ const navGroups: Array<{ title: string; items: NavItem[] }> = [
 const nav = navGroups.flatMap((group) => group.items);
 
 // Restricted "operator" accounts (e.g. a login shared only for manual
-// publishing) see nothing but Publicación manual — mirrors the backend
-// gate in apps/server/src/app.ts (operatorAllowedCommandTypes) so a
-// restricted user can't reach other pages even by guessing a tab id.
-const OPERATOR_TABS: readonly Tab[] = ["manual-news"];
+// publishing) see Publicación manual and their own Cola de trabajos —
+// mirrors the backend gate in apps/server/src/app.ts
+// (operatorAllowedCommandTypes) so a restricted user can't reach other
+// pages even by guessing a tab id.
+const OPERATOR_TABS: readonly Tab[] = ["manual-news", "commands"];
 
 function navGroupsForRole(role: string | undefined): Array<{ title: string; items: NavItem[] }> {
   if (role === "admin") return navGroups;
@@ -83,7 +86,6 @@ export function App() {
   const [tab, setTab] = useState<Tab>("dashboard");
   const [dashboard, setDashboard] = useState<any>(null);
   const [commands, setCommands] = useState<CommandRecord[]>([]);
-  const [myNewsCommands, setMyNewsCommands] = useState<CommandRecord[]>([]);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -92,14 +94,14 @@ export function App() {
   const refresh = useCallback(async () => {
     if (!user) return;
     try {
-      const [nextDashboard, nextHistory, nextMyNews] = await Promise.all([
+      // Admins get the full cross-account queue; restricted operators only
+      // have access to their own submissions (/api/commands is admin-only).
+      const [nextDashboard, nextHistory] = await Promise.all([
         getDashboard(),
-        tab === "commands" ? getCommands() : Promise.resolve(null),
-        getMyCommands("news.publish"),
+        tab === "commands" ? (user.role === "admin" ? getCommands() : getMyCommands()) : Promise.resolve(null),
       ]);
       setDashboard(nextDashboard);
       setCommands(nextHistory?.items ?? nextDashboard.commands ?? []);
-      setMyNewsCommands(nextMyNews.items);
       setError("");
     } catch (cause) {
       setError(message(cause));
@@ -201,7 +203,7 @@ export function App() {
           {notice && <div className="alert success">{notice}<button onClick={() => setNotice("")}>×</button></div>}
           {tab === "dashboard" && <Dashboard data={dashboard} commands={commands} snapshots={snapshots} run={run} navigate={navigate} />}
           {tab === "scrapers" && <Scrapers commands={commands} snapshots={snapshots} run={run} />}
-          {tab === "manual-news" && <ManualNews commands={commands} history={myNewsCommands} snapshots={snapshots} run={run} />}
+          {tab === "manual-news" && <ManualNews commands={commands} snapshots={snapshots} run={run} />}
           {tab === "prepared" && <Prepared commands={commands} snapshots={snapshots} run={run} />}
           {tab === "wordpress" && <WordPressShare commands={commands} snapshots={snapshots} run={run} />}
           {tab === "automation" && <Automation snapshots={snapshots} run={run} />}
@@ -395,7 +397,7 @@ function Videos({ snapshots, commands, run }: { snapshots: Record<string, any>; 
   const [uploadError, setUploadError] = useState("");
   const [batch, setBatch] = useState("");
   const [batchAction, setBatchAction] = useState("process");
-  const [platforms, setPlatforms] = useState<string[]>(["facebook", "instagram", "x"]);
+  const [platforms, setPlatforms] = useState<string[]>(["facebook", "instagram", "x", "whatsapp"]);
   const [selectedJobs, setSelectedJobs] = useState<string[]>([]);
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [selectedGroupSet, setSelectedGroupSet] = useState<ContentItem | null>(null);
@@ -724,9 +726,10 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
             <p className="eyebrow">Detalle del trabajo</p>
             <h2>{commandLabel(selected.type)}</h2>
             <div className="modal-meta"><Badge status={selected.status} /><span>{shortDate(selected.createdAt)}</span><code>{selected.id.slice(0, 8)}</code></div>
+            {publishItemsSummary(selected) && <p className="card-intro">{publishItemsSummary(selected)}</p>}
             <Progress command={selected} />
             {selected.errorMessage && <div className="command-error"><strong>{selected.errorCode ?? "Error de ejecución"}</strong><p>{selected.errorMessage}</p></div>}
-            {selected.result ? <ResultSummary command={selected} /> : <Empty text="El trabajo todavía no produjo un resultado" />}
+            {selected.result ? <><ResultSummary command={selected} /><PublishPlatformSummary command={selected} /></> : <Empty text="El trabajo todavía no produjo un resultado" />}
             {events.length > 0 && (
               <div className="event-timeline">
                 <h3>Actividad</h3>
@@ -809,7 +812,7 @@ function CommandTable({ items, onOpen }: { items: CommandRecord[]; onOpen?: (ite
               <td>{shortDate(command.createdAt)}</td>
               <td><strong className="command-name">{commandLabel(command.type)}</strong><small className="command-code">{command.type}</small></td>
               <td><Badge status={command.status} /></td>
-              <td>{humanize(command.currentStage || "Esperando agente")}</td>
+              <td>{command.currentStage ? stageLabel(command.currentStage) : "Esperando agente"}</td>
               <td><div className="progress-cell"><div><span style={{ width: `${Math.max(0, Math.min(100, command.progressPercent ?? 0))}%` }} /></div><small>{command.progressPercent ?? 0}%</small></div></td>
             </tr>
           ))}
@@ -868,6 +871,16 @@ function isObject(value: unknown): value is ContentItem {
 
 function confirmed(value: string) {
   return window.confirm(value);
+}
+
+function publishItemsSummary(command: CommandRecord): string {
+  if (command.type !== "news.publish") return "";
+  const payload = command.payload as any;
+  const directNewsItems = Array.isArray(payload?.directNewsItems) ? payload.directNewsItems : [];
+  const total = directNewsItems.length || (Array.isArray(payload?.selectedIndices) ? payload.selectedIndices.length : 0);
+  if (!total) return "";
+  if (total === 1 && directNewsItems[0]) return `1 noticia: ${articleTitle(directNewsItems[0])}`;
+  return `${total} noticias en este envío`;
 }
 
 function humanize(value: unknown) {

@@ -416,15 +416,12 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
             <Field label="Noticia" hint={`${draft.body.length}/50.000 caracteres · separá los párrafos con una línea en blanco`}>
               <textarea className="manual-news-body" value={draft.body} onChange={(event) => update("body", event.target.value)} maxLength={50_000} rows={16} placeholder="Escribí el contenido completo de la noticia…" />
             </Field>
-            <div className="grid two manual-meta-grid">
+            <div className="manual-meta-grid">
               <Field label="Categoría" hint="Si no elegís una, el pipeline la clasifica según el título y el contenido.">
                 <select value={draft.category} onChange={(event) => update("category", event.target.value)}>
                   <option value="">Automática</option>
                   {MANUAL_NEWS_CATEGORIES.map((category) => <option value={category} key={category}>{category}</option>)}
                 </select>
-              </Field>
-              <Field label="Fuente" hint="Si queda vacía, se usará Redacción HolaSalta.">
-                <input value={draft.source} onChange={(event) => update("source", event.target.value)} maxLength={200} placeholder="Automática: Redacción HolaSalta" />
               </Field>
             </div>
             <Field label="Imagen" hint="JPG, PNG o WebP de hasta 3 MB. El pipeline local la optimizará y comprimirá.">
@@ -463,7 +460,7 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
               : <div className="media-fallback">HS</div>}
           </div>
           <div className="manual-preview-copy">
-            <div className="article-meta"><span>{draft.category.trim() || "Categoría automática"}</span><time>{draft.source.trim() || "Redacción HolaSalta"}</time></div>
+            <div className="article-meta"><span>{draft.category.trim() || "Categoría automática"}</span></div>
             <h3>{draft.title.trim() || "El título aparecerá aquí"}</h3>
             {preview.parrafos.length
               ? <div className="article-body">{preview.parrafos.slice(0, 8).map((paragraph: string, index: number) => <p key={index}>{paragraph}</p>)}</div>

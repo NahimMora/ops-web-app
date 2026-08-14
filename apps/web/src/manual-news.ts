@@ -6,7 +6,6 @@ export type ManualNewsDraft = {
   body: string;
   image: string;
   category: string;
-  source: string;
 };
 
 export const EMPTY_MANUAL_NEWS_DRAFT: ManualNewsDraft = {
@@ -15,8 +14,9 @@ export const EMPTY_MANUAL_NEWS_DRAFT: ManualNewsDraft = {
   body: "",
   image: "",
   category: "",
-  source: "",
 };
+
+export const MANUAL_NEWS_SOURCE = "Redacción HolaSalta";
 
 export const MANUAL_NEWS_CATEGORIES = [
   "Salta",
@@ -40,7 +40,6 @@ export function validateManualNewsDraft(draft: ManualNewsDraft): string | null {
   if (draft.body.trim().length > 50_000) return "La noticia no puede superar los 50.000 caracteres.";
   if (draft.category.trim().length > 120) return "La categoría no puede superar los 120 caracteres.";
   if (draft.category.trim() && !(MANUAL_NEWS_CATEGORIES as readonly string[]).includes(draft.category.trim())) return "Elegí una categoría válida o usá Automática.";
-  if (draft.source.trim().length > 200) return "La fuente no puede superar los 200 caracteres.";
   if (draft.image.trim().length > 2048) return "La URL de la imagen no puede superar los 2.048 caracteres.";
   if (draft.image.trim() && !isHttpUrl(draft.image.trim())) return "La imagen debe ser una URL http o https válida.";
   return null;
@@ -51,7 +50,7 @@ export function buildManualNewsItem(draft: ManualNewsDraft): ContentItem {
   const body = draft.body.trim();
   const image = draft.image.trim();
   const category = draft.category.trim();
-  const source = draft.source.trim() || "Redacción HolaSalta";
+  const source = MANUAL_NEWS_SOURCE;
   const paragraphs = splitManualNewsBody(body);
   const excerpt = paragraphs.join(" ").replace(/\s+/g, " ").slice(0, 320).trim();
 

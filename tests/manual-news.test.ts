@@ -8,7 +8,6 @@ const validDraft = {
   body: "Primer párrafo de la noticia.\n\nSegundo párrafo con más información.",
   image: "https://example.com/noticia.jpg",
   category: "Salta",
-  source: "Redacción HolaSalta",
 };
 
 describe("manual news publication", () => {
@@ -39,12 +38,12 @@ describe("manual news publication", () => {
     expect(validateManualNewsDraft({ ...validDraft, image: "data:image/png;base64,abc" })).toMatch(/URL http/i);
   });
 
-  it("supports automatic category and source defaults", () => {
-    const item = buildManualNewsItem({ ...validDraft, category: "", source: "" });
+  it("supports automatic category defaults and always stamps the newsroom source", () => {
+    const item = buildManualNewsItem({ ...validDraft, category: "" });
     expect(item.categoria).toBeUndefined();
     expect(item.source).toBe("Redacción HolaSalta");
     expect(item.fuente).toBe("Redacción HolaSalta");
-    expect(validateManualNewsDraft({ ...validDraft, category: "", source: "" })).toBeNull();
+    expect(validateManualNewsDraft({ ...validDraft, category: "" })).toBeNull();
     expect(MANUAL_NEWS_CATEGORIES).toEqual(["Salta", "Policiales", "Nacionales", "Deportes", "Espectáculos", "Internacionales", "¿Sabías que?", "Columnas"]);
   });
 

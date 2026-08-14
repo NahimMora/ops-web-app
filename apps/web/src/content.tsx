@@ -451,14 +451,6 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
             run={run}
           />
         )}
-        <div className="publish-footer">
-          <div><strong>1 noticia manual</strong><span>{platforms.length} destinos seleccionados</span></div>
-          <button className="primary publish-button" disabled={Boolean(validateManualNewsDraft(draft)) || imageUploadBusy || !platforms.length || isActive(publishCommand) || (platforms.includes("whatsapp") && !selectedGroups.length)} onClick={() => {
-            const error = validateManualNewsDraft(draft);
-            if (error) setFormError(error);
-            else setReviewItem(buildManualNewsItem(draft));
-          }}>Revisar y publicar</button>
-        </div>
         <Progress command={publishCommand} />
         {publishCommand?.result && <><ResultSummary command={publishCommand} /><TechnicalDetails value={publishCommand.result} /></>}
       </Card>

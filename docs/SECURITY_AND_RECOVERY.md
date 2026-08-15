@@ -32,7 +32,7 @@ Se protege contra acceso no autorizado al panel, robo del repo público, CSRF, f
 | R2 de cargas temporales | variables hPanel `OPS_UPLOAD_R2_*` | sí, token separado | no |
 | Credenciales MySQL | variables hPanel | sí | no |
 
-Después de guardar la contraseña inicial en un gestor, borrar el archivo temporal de credenciales. Restringir acceso NTFS a `D:\Ops\.secrets` y al `.env` actual al usuario operativo.
+Después de guardar la contraseña inicial en un gestor, borrar el archivo temporal de credenciales. Restringir acceso NTFS a `C:\HolaSalta\Ops\.secrets` y al `.env` actual al usuario operativo.
 
 ## Backup
 
@@ -66,7 +66,7 @@ Después de guardar la contraseña inicial en un gestor, borrar el archivo tempo
 
 ### Cuenta admin comprometida
 
-1. Ejecutar `npm run secrets:rotate-admin` en `D:\Ops`; el comando sólo modifica el hash admin en `.secrets\hostinger.env` y la contraseña en `.secrets\ADMIN_CREDENTIALS.txt`.
+1. Ejecutar `npm run secrets:rotate-admin` en `C:\HolaSalta\Ops`; el comando sólo modifica el hash admin en `.secrets\hostinger.env` y la contraseña en `.secrets\ADMIN_CREDENTIALS.txt`.
 2. En hPanel, reemplazar únicamente `OPS_BOOTSTRAP_ADMIN_PASSWORD_HASH` con el nuevo valor local y usar Save and redeploy.
 3. El bootstrap sincroniza el hash dentro de una transacción, limpia el bloqueo y revoca las sesiones del admin cuando detecta el cambio.
 4. Ingresar con la nueva contraseña dejando 2FA vacío si aún no fue activado. Guardarla en un gestor y eliminar el archivo temporal.
@@ -81,8 +81,8 @@ Después de guardar la contraseña inicial en un gestor, borrar el archivo tempo
 
 ## Recuperación total de PC
 
-1. Restaurar `D:\WebApp_HolaSalta` y dependencias/perfiles.
-2. Clonar `ops-web-app` a `D:\Ops`.
+1. Restaurar `C:\HolaSalta\WebApp_HolaSalta` y dependencias/perfiles.
+2. Clonar `ops-web-app` a `C:\HolaSalta\Ops`.
 3. Restaurar `.secrets\agent.env` cifrado.
 4. `npm ci && npm run build`.
 5. Instalar Scheduled Task.

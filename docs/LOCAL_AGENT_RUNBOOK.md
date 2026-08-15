@@ -7,14 +7,14 @@ La tarea `HolaSalta Ops Local Agent` inicia `scripts\supervisor.ps1` al abrir la
 - backend en `http://127.0.0.1:8000/health`;
 - proceso Node `dist\agent\main.js`.
 
-El agente carga primero `.secrets\agent.env` y después `D:\WebApp_HolaSalta\backend\.env` sin sobreescribir variables. Así reutiliza R2 y credenciales locales sin copiarlas.
+El agente carga primero `.secrets\agent.env` y después `C:\HolaSalta\WebApp_HolaSalta\backend\.env` sin sobreescribir variables. Así reutiliza R2 y credenciales locales sin copiarlas.
 
 ## Comandos útiles
 
 Estado general:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\Ops\scripts\doctor.ps1
+powershell -ExecutionPolicy Bypass -File C:\HolaSalta\Ops\scripts\doctor.ps1
 Get-ScheduledTask -TaskName "HolaSalta Ops Local Agent" | Format-List TaskName,State
 ```
 
@@ -28,7 +28,7 @@ Start-ScheduledTask -TaskName "HolaSalta Ops Local Agent"
 Actualizar después de un push:
 
 ```powershell
-Set-Location D:\Ops
+Set-Location C:\HolaSalta\Ops
 Stop-ScheduledTask -TaskName "HolaSalta Ops Local Agent"
 git pull --ff-only origin main
 npm.cmd ci
@@ -46,7 +46,7 @@ No usar `git reset --hard`; si hay cambios locales, revisarlos antes.
 
 1. Ejecutar `doctor.ps1`.
 2. Revisar que Windows tenga Internet y hora correcta.
-3. Ver sólo los eventos sanitizados recientes de `D:\Ops\agent-state\supervisor.log`.
+3. Ver sólo los eventos sanitizados recientes de `C:\HolaSalta\Ops\agent-state\supervisor.log`.
 4. Confirmar que la tarea no esté Disabled.
 5. Reiniciar la tarea.
 6. Si health local falla, revisar el backend actual; no abrir el puerto 8000 en firewall/router.

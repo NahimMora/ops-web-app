@@ -60,12 +60,12 @@ El modo `memory` está prohibido automáticamente cuando `NODE_ENV=production`.
 ## Instalación real resumida
 
 1. Crear MySQL en Hostinger.
-2. Abrir `D:\Ops\.secrets\hostinger.env`, reemplazar los tres valores `DB_*` y las cuatro variables obligatorias `OPS_UPLOAD_R2_*`, y cargarlo en hPanel.
+2. Abrir `C:\HolaSalta\Ops\.secrets\hostinger.env`, reemplazar los tres valores `DB_*` y las cuatro variables obligatorias `OPS_UPLOAD_R2_*`, y cargarlo en hPanel.
 3. Desplegar el repositorio como Node.js 22 con `npm ci && npm run build` y entrada `dist/server/main.js`.
 4. Conectar `ops.holasalta.com` y esperar SSL.
-5. En la PC ejecutar `powershell -ExecutionPolicy Bypass -File D:\Ops\scripts\install-agent-task.ps1`.
-6. Ejecutar `powershell -ExecutionPolicy Bypass -File D:\Ops\scripts\doctor.ps1`.
-7. Abrir `D:\Ops\.secrets\ADMIN_CREDENTIALS.txt`, ingresar y activar TOTP en Seguridad.
+5. En la PC ejecutar `powershell -ExecutionPolicy Bypass -File C:\HolaSalta\Ops\scripts\install-agent-task.ps1`.
+6. Ejecutar `powershell -ExecutionPolicy Bypass -File C:\HolaSalta\Ops\scripts\doctor.ps1`.
+7. Abrir `C:\HolaSalta\Ops\.secrets\ADMIN_CREDENTIALS.txt`, ingresar y activar TOTP en Seguridad.
 
 El procedimiento exacto, validaciones y rollback están en [docs/DEPLOY_HOSTINGER.md](docs/DEPLOY_HOSTINGER.md).
 

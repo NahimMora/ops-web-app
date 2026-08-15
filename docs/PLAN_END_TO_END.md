@@ -2,7 +2,7 @@
 
 ## Objetivo y decisión de viabilidad
 
-Crear una app separada en `D:\Ops`, accesible como `ops.holasalta.com`, reutilizando las funciones del repositorio actual sin trasladar su carga. Es una inversión razonable porque aprovecha Cloud Startup, dominio, PC y R2 existentes; el costo nuevo principal es mantenimiento, no infraestructura. La arquitectura evita pagar un VPS y evita intentar ejecutar Playwright/ffmpeg en hosting administrado.
+Crear una app separada en `C:\HolaSalta\Ops`, accesible como `ops.holasalta.com`, reutilizando las funciones del repositorio actual sin trasladar su carga. Es una inversión razonable porque aprovecha Cloud Startup, dominio, PC y R2 existentes; el costo nuevo principal es mantenimiento, no infraestructura. La arquitectura evita pagar un VPS y evita intentar ejecutar Playwright/ffmpeg en hosting administrado.
 
 ## Requisitos consolidados
 

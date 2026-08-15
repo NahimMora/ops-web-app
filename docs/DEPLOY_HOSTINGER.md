@@ -6,9 +6,9 @@ Este documento empieza con el repositorio publicado y termina con `ops.holasalta
 
 En la PC existen, fuera de Git:
 
-- `D:\Ops\.secrets\hostinger.env`: variables para hPanel; contiene placeholders de MySQL.
-- `D:\Ops\.secrets\agent.env`: token crudo del agente; sólo local.
-- `D:\Ops\.secrets\ADMIN_CREDENTIALS.txt`: contraseña inicial.
+- `C:\HolaSalta\Ops\.secrets\hostinger.env`: variables para hPanel; contiene placeholders de MySQL.
+- `C:\HolaSalta\Ops\.secrets\agent.env`: token crudo del agente; sólo local.
+- `C:\HolaSalta\Ops\.secrets\ADMIN_CREDENTIALS.txt`: contraseña inicial.
 
 No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_CREDENTIALS.txt` en un gestor de contraseñas.
 
@@ -17,7 +17,7 @@ No pegar su contenido en chats, issues o logs. Antes del deploy, guardar `ADMIN_
 1. hPanel → Websites → administrar el sitio/plan → Databases → Management.
 2. Crear una base, por ejemplo `ops`, y un usuario exclusivo con contraseña aleatoria.
 3. Usar `DB_HOST=127.0.0.1` y `DB_PORT=3306`. En este runtime, `localhost` resuelve a `::1` y puede producir `ER_ACCESS_DENIED_ERROR` aunque el usuario esté autorizado para IPv4.
-4. Editar localmente `D:\Ops\.secrets\hostinger.env` y reemplazar:
+4. Editar localmente `C:\HolaSalta\Ops\.secrets\hostinger.env` y reemplazar:
    - confirmar `DB_HOST=127.0.0.1`;
    - `DB_USER`.
    - `DB_PASSWORD`.
@@ -70,7 +70,7 @@ La propagación puede demorar; no cambiar `agent.env` a la URL temporal salvo pa
 
 ## 5. Activar el agente local
 
-En PowerShell desde `D:\Ops`:
+En PowerShell desde `C:\HolaSalta\Ops`:
 
 ```powershell
 npm.cmd ci
@@ -80,7 +80,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\install-agent-task.ps1
 
 La tarea se ejecuta al iniciar sesión, queda oculta y reinicia procesos. El supervisor:
 
-- inicia `D:\WebApp_HolaSalta\backend\start_backend.bat` si `127.0.0.1:8000/health` no responde;
+- inicia `C:\HolaSalta\WebApp_HolaSalta\backend\start_backend.bat` si `127.0.0.1:8000/health` no responde;
 - inicia/reinicia `dist\agent\main.js`;
 - nunca abre un túnel ni escucha públicamente;
 - escribe sólo eventos sanitizados en `agent-state\supervisor.log`.
@@ -92,7 +92,7 @@ Para recuperación tras corte eléctrico, Windows debe arrancar y abrir la sesi�
 Ejecutar:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File D:\Ops\scripts\doctor.ps1
+powershell -ExecutionPolicy Bypass -File C:\HolaSalta\Ops\scripts\doctor.ps1
 ```
 
 Luego en la web:
@@ -125,7 +125,7 @@ Luego en la web:
 - Código: en GitHub revertir el commit defectuoso y redeploy de `main`.
 - Variables: Environment Variables → restaurar el valor previo → Save and redeploy.
 - Base: usar backup de Hostinger antes de migraciones futuras. La versión 1 sólo crea tablas y no borra datos.
-- Agente: detener la tarea `HolaSalta Ops Local Agent`, volver al commit estable en `D:\Ops`, `npm ci`, `npm run build`, iniciar tarea.
+- Agente: detener la tarea `HolaSalta Ops Local Agent`, volver al commit estable en `C:\HolaSalta\Ops`, `npm ci`, `npm run build`, iniciar tarea.
 - Emergencia de seguridad: revocar todas las sesiones desde Seguridad, rotar token del agente de manera coordinada y cambiar contraseña MySQL.
 
 ## Referencias oficiales

@@ -381,6 +381,13 @@ export function ReadableData({ value, empty = "Sin datos disponibles" }: { value
 
 function publishPlatformStatus(entry: unknown): { label: string; tone: "good" | "bad" | "warn" | "neutral" } {
   if (!isRecord(entry)) return { label: "Pendiente", tone: "neutral" };
+  // web_url_required means this platform was skipped on purpose because it
+  // depends on a web/WordPress URL that didn't publish first (see
+  // DEPENDENT_WEB_PLATFORMS in publishing.py) -- not a failure of this
+  // platform itself. Without this check it looked identical to a real
+  // WhatsApp/Instagram/Facebook/X error ("Con error"), which reads as "the
+  // checkbox didn't work" instead of "fix Web/WordPress first".
+  if (entry.error_code === "web_url_required") return { label: "Saltado: falta Web/WordPress", tone: "warn" };
   const failed = Number(entry.items_failed ?? entry.messages_failed ?? 0);
   const success = Number(entry.items_success ?? entry.messages_sent ?? (entry.status === "success" ? 1 : 0));
   if (failed && success) return { label: "Éxito parcial", tone: "warn" };

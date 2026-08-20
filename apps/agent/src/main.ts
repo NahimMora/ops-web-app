@@ -13,7 +13,12 @@ const local = new LocalApi(); const ops = new OpsClient(); let stopping = false;
 let activeCount = 0;
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function localHealth(): Promise<"healthy" | "degraded" | "offline"> { try { const result = await local.get("/health", 5000); return result?.status === "healthy" ? "healthy" : "degraded"; } catch { return "offline"; } }
+// "running"/"stopped"/"needs_auth" are normal operational states from the
+// local backend's real /health (automation intentionally off, or waiting on
+// a QR/login) - only "degraded" (a platform worker actually broken) and
+// anything unrecognized should count as degraded here.
+const LOCAL_HEALTHY_STATUSES = new Set(["healthy", "running", "stopped", "needs_auth"]);
+async function localHealth(): Promise<"healthy" | "degraded" | "offline"> { try { const result = await local.get("/health", 5000); return LOCAL_HEALTHY_STATUSES.has(String(result?.status ?? "")) ? "healthy" : "degraded"; } catch { return "offline"; } }
 async function heartbeatLoop() { while (!stopping) { try { await ops.heartbeat(await localHealth(), capabilities, { active: activeCount > 0, activeCount }); } catch (error) { console.error(`[agent] heartbeat failed: ${safeError(error)}`); } await delay(agentConfig.heartbeatMs); } }
 async function snapshotLoop() { while (!stopping) { try { if (activeCount === 0 && (await localHealth()) !== "offline") await syncSnapshots(local, ops); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(activeCount > 0 ? 10_000 : 20_000); } }
 

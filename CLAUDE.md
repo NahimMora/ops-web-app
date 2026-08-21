@@ -1,5 +1,13 @@
 # HolaSalta Ops — contexto para Claude
 
+## ⚠️ REGLA DURA: dónde corre el servicio
+
+Producción es **exclusivamente `$env:COMPUTERNAME -eq "FERNANDO"`**. El
+agente, el supervisor y el backend solo deben correr ahí. Cualquier otra
+máquina (en particular `NAHIM`, la PC de desarrollo) es solo para editar
+código y pushear — nunca para arrancar el supervisor ni el backend. Ver el
+`CLAUDE.md` del repo backend para el detalle completo de esta regla.
+
 ## Qué es esto
 
 El plano de control remoto de HolaSalta: panel web en

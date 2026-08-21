@@ -354,6 +354,22 @@ tr.clickable:hover { background: var(--pink-soft); }
 .wp-list strong, .attention-list strong, .download-list strong { overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .wp-list small, .attention-list span, .attention-list small, .download-list small { color: var(--muted); font-size: 9px; }
 .small-count { color: var(--muted); font-size: 10px; }
+.ig-pending-list { display: grid; gap: 12px; }
+.ig-pending-card { display: grid; gap: 11px; border: 1px solid var(--border-soft); border-radius: 13px; padding: 13px 14px; background: #18131e; }
+.ig-pending-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.ig-pending-headline { display: flex; align-items: center; gap: 9px; min-width: 0; }
+.ig-pending-headline strong { font-size: 11px; line-height: 1.5; }
+.ig-pending-meta { display: flex; flex-wrap: wrap; gap: 8px 16px; color: var(--muted); font-size: 9px; }
+.ig-pending-meta span { display: flex; gap: 5px; }
+.ig-pending-meta strong { color: #e9dfec; font-weight: 700; }
+.ig-pending-caption { display: grid; gap: 7px; border: 1px solid var(--border-soft); border-radius: 10px; padding: 10px 11px; background: #0f0b13; }
+.ig-pending-caption-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 9px; }
+.ig-pending-caption-head button { min-height: 27px; padding: 4px 10px; font-size: 9px; }
+.ig-pending-caption p { margin: 0; color: #ded4e0; font-size: 11px; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ig-pending-images { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 10px; }
+.ig-pending-image { display: grid; gap: 6px; margin: 0; }
+.ig-pending-image img { width: 100%; height: 110px; object-fit: cover; border-radius: 9px; background: #0f0b13; }
+.ig-pending-image .button { min-height: 27px; padding: 4px 8px; font-size: 9px; text-align: center; }
 .video-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 11px; }
 .video-card { position: relative; border: 1px solid var(--border-soft); border-radius: 13px; padding: 13px; background: #18131e; }
 .video-card.selected { border-color: rgba(255,45,141,.55); }

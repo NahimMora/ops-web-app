@@ -25,8 +25,10 @@ import {
   Badge,
   Card,
   computeOpsAlerts,
+  CopyButton,
   Empty,
   Field,
+  igPendingReasonLabel,
   MiniProgressBar,
   PlatformChooser,
   Progress,
@@ -369,20 +371,93 @@ function Automation({ snapshots, run }: { snapshots: Record<string, any>; run: R
       </Card>
 
       <Card title="Pendientes de Instagram" eyebrow="Intervención">
-        <div className="attention-list">
-          {pending.map((item, index) => {
-            const id = String(item.id ?? item.pending_id ?? index);
-            return (
-              <article key={id}>
-                <div><strong>{String(item.reason ?? item.title ?? "Publicación pendiente")}</strong><span>{String(item.last_error ?? item.error ?? "Requiere revisión")}</span><small>{shortDate(item.updated_at ?? item.created_at)}</small></div>
-                <div className="actions"><button onClick={() => void run("instagram.pending.retry", { pendingId: id })}>Reintentar</button><button className="danger-ghost" onClick={() => confirmed("¿Eliminar este pendiente?") && void run("instagram.pending.delete", { pendingId: id })}>Eliminar</button></div>
-              </article>
-            );
-          })}
-          {!pending.length && <Empty text="No hay pendientes de Instagram" />}
+        <div className="ig-pending-list">
+          {pending.map((item, index) => (
+            <InstagramPendingCard key={String(item.id ?? item.pending_id ?? index)} item={item} run={run} />
+          ))}
+          {!pending.length && <Empty text="No hay pendientes de Instagram" detail="Nada esperando reintento o intervención manual en este momento." />}
         </div>
       </Card>
     </div>
+  );
+}
+
+// Rendered when an Instagram publish attempt gets deferred (rate limit, daily
+// cap, publish failure, etc). Before this card, "Pendientes de Instagram"
+// only showed a reason code and a timestamp, so there was no way to tell
+// what was actually queued for retry without digging into server logs. This
+// surfaces the full caption and images so an operator can judge the post on
+// sight, and offers copy/download so it can be posted by hand if the retry
+// keeps failing.
+function InstagramPendingCard({ item, run }: { item: ContentItem; run: RunCommand }) {
+  const id = String(item.id ?? item.pending_id ?? "");
+  const payload = item.payload && typeof item.payload === "object" ? item.payload : {};
+  const caption = String(payload.caption ?? item.caption ?? item.texto_instagram ?? "").trim();
+  const rawImages = payload.imagenes ?? item.imagenes ?? item.imagenes_url ?? [];
+  const images: string[] = Array.isArray(rawImages)
+    ? rawImages.map((value: unknown) => String(value ?? "").trim()).filter(Boolean)
+    : typeof rawImages === "string" && rawImages.trim()
+      ? [rawImages.trim()]
+      : [];
+  const status = String(item.status ?? "waiting_manual_retry");
+  const attempts = Number(item.attempts ?? 0);
+  const lastError = String(item.last_error ?? item.error ?? "").trim();
+  const source = String(item.source ?? "").trim();
+  const igKey = String(payload.ig_key ?? item.ig_key ?? "").trim();
+  const busy = status === "retrying";
+
+  return (
+    <article className="ig-pending-card">
+      <div className="ig-pending-head">
+        <div className="ig-pending-headline">
+          <Badge status={status} />
+          <strong>{igPendingReasonLabel(String(item.reason ?? ""))}</strong>
+        </div>
+        <div className="actions">
+          <button disabled={busy} onClick={() => void run("instagram.pending.retry", { pendingId: id })}>{busy ? "Reintentando…" : "Reintentar"}</button>
+          <button className="danger-ghost" onClick={() => confirmed("¿Eliminar este pendiente de Instagram? Esta acción no se puede deshacer.") && void run("instagram.pending.delete", { pendingId: id })}>Eliminar</button>
+        </div>
+      </div>
+
+      <div className="ig-pending-meta">
+        <span>Intentos<strong>{attempts}</strong></span>
+        <span>Creado<strong>{shortDate(item.created_at)}</strong></span>
+        <span>Actualizado<strong>{shortDate(item.updated_at)}</strong></span>
+        {source && <span>Origen<strong>{source}</strong></span>}
+        {igKey && <span>Clave<strong>{igKey.slice(0, 16)}</strong></span>}
+      </div>
+
+      {lastError && <div className="inline-error"><strong>Error técnico: </strong>{lastError}</div>}
+
+      {caption ? (
+        <div className="ig-pending-caption">
+          <div className="ig-pending-caption-head">
+            <span>Texto de la publicación ({caption.length} caracteres)</span>
+            <CopyButton text={caption} label="Copiar texto" />
+          </div>
+          <p>{caption}</p>
+        </div>
+      ) : (
+        <Empty text="Esta publicación no tiene texto guardado" />
+      )}
+
+      {images.length > 0 ? (
+        <div className="ig-pending-images">
+          {images.map((url, index) => (
+            <figure className="ig-pending-image" key={`${id}-${index}`}>
+              <img src={url} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.style.display = "none"; }} />
+              <a className="button" href={url} download target="_blank" rel="noreferrer">
+                Descargar{images.length > 1 ? ` imagen ${index + 1}` : " imagen"}
+              </a>
+            </figure>
+          ))}
+        </div>
+      ) : (
+        <Empty text="Esta publicación no tiene imágenes guardadas" />
+      )}
+
+      <TechnicalDetails value={item} label="Ver detalle técnico (JSON)" />
+    </article>
   );
 }
 

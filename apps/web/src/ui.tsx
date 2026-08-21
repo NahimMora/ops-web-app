@@ -1,5 +1,5 @@
 /* eslint-disable react-refresh/only-export-components */
-import type { SyntheticEvent } from "react";
+import { useState, type SyntheticEvent } from "react";
 import type { CommandRecord, CommandType } from "../../../packages/contracts/src/index";
 
 export type RunCommand = (
@@ -166,6 +166,7 @@ export function statusLabel(status: string) {
     partial_success: "Éxito parcial",
     completed_unverified: "Sin verificar",
     waiting_manual_retry: "Reintento manual",
+    retrying: "Reintentando",
     requires_attention: "Requiere atención",
     failed: "Fallido",
     cancelled: "Cancelado",
@@ -179,6 +180,26 @@ export function statusLabel(status: string) {
     cleanup_error: "Limpieza pendiente",
     offline: "Desconectado",
   } as Record<string, string>)[status] ?? status;
+}
+
+const IG_PENDING_REASON_LABELS: Record<string, string> = {
+  rate_limited: "Instagram aplicó un límite de publicaciones (rate limit). Se reintentará solo más tarde, o podés reintentar ahora manualmente.",
+  retry_after: "En espera por un límite de Instagram detectado en un intento anterior.",
+  daily_publish_cap: "Se alcanzó el máximo de publicaciones diarias permitidas en Instagram.",
+  run_item_cap: "Se alcanzó el máximo de publicaciones por corrida para este ítem.",
+  run_publish_cap: "Se alcanzó el máximo de publicaciones por corrida.",
+  no_valid_images: "No se encontraron imágenes válidas para publicar en Instagram.",
+  invalid_media: "La imagen o el video no cumple los requisitos de Instagram.",
+  publish_failed: "Falló la publicación en Instagram.",
+  retry_failed: "El último reintento manual volvió a fallar.",
+  permanent_error: "Instagram devolvió un error permanente al intentar publicar.",
+  manual_retry: "Pendiente de reintento manual.",
+  manual_retry_in_progress: "Hay un reintento en curso.",
+};
+
+export function igPendingReasonLabel(reason: string) {
+  const key = String(reason || "").trim();
+  return IG_PENDING_REASON_LABELS[key] ?? (key ? humanizeKey(key) : "Requiere revisión manual");
 }
 
 export function commandLabel(type: string) {
@@ -245,6 +266,36 @@ export function StatusDot({ online }: { online: boolean }) {
 
 export function Empty({ text, detail }: { text: string; detail?: string }) {
   return <div className="empty"><strong>{text}</strong>{detail && <span>{detail}</span>}</div>;
+}
+
+export function CopyButton({ text, label = "Copiar texto", copiedLabel = "Copiado ✓", className = "" }: { text: string; label?: string; copiedLabel?: string; className?: string }) {
+  const [copied, setCopied] = useState(false);
+  const onClick = async () => {
+    if (!text) return;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const helper = document.createElement("textarea");
+        helper.value = text;
+        helper.style.position = "fixed";
+        helper.style.opacity = "0";
+        document.body.appendChild(helper);
+        helper.select();
+        document.execCommand("copy");
+        document.body.removeChild(helper);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    } catch {
+      setCopied(false);
+    }
+  };
+  return (
+    <button type="button" className={className} disabled={!text} onClick={onClick}>
+      {copied ? copiedLabel : label}
+    </button>
+  );
 }
 
 export type OpsAlert = { id: string; tone: "critical" | "warning"; message: string };

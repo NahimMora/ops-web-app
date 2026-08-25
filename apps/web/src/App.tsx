@@ -828,7 +828,18 @@ function Commands({ items, refresh }: { items: CommandRecord[]; refresh(): Promi
             <TechnicalDetails value={{ command: selected, events }} />
             <div className="actions modal-actions">
               {["queued", "claimed"].includes(selected.status) && <button onClick={() => cancelCommand(selected.id).then(refresh)}>Cancelar</button>}
-              {["failed", "waiting_manual_retry", "requires_attention"].includes(selected.status) && <button className="primary" onClick={() => retryCommand(selected.id).then(refresh)}>Reintentar</button>}
+              {["failed", "waiting_manual_retry", "requires_attention", "cancelled"].includes(selected.status) && (
+                <button
+                  className="primary"
+                  onClick={() =>
+                    retryCommand(selected.id)
+                      .then(refresh)
+                      .catch((cause) => window.alert(message(cause)))
+                  }
+                >
+                  Reintentar
+                </button>
+              )}
             </div>
           </section>
         </div>

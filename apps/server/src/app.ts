@@ -326,7 +326,35 @@ export async function createApp(repository: Repository) {
   app.get("/api/commands/:id", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); if (!command) return rep.code(404).send({ error: "NOT_FOUND" }); if (ctx.user.role !== "admin" && command.createdBy !== ctx.user.id) return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ command: publicCommand(command) }); });
   app.get("/api/commands/:id/events", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const command = await repository.getCommand(id.data.id); if (!command) return rep.code(404).send({ error: "NOT_FOUND" }); if (ctx.user.role !== "admin" && command.createdBy !== ctx.user.id) return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ items: await repository.listEvents(id.data.id, 500) }); });
   app.post("/api/commands/:id/cancel", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const existing = await repository.getCommand(id.data.id); if (!existing) return rep.code(404).send({ error: "NOT_FOUND" }); if (ctx.user.role !== "admin" && existing.createdBy !== ctx.user.id) return rep.code(403).send({ error: "FORBIDDEN" }); const command = await repository.cancelCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_CANCELLABLE" }); await repository.appendEvent(command.id, "cancelled", "warning", "Comando cancelado por el usuario"); rep.send({ command: publicCommand(command) }); });
-  app.post("/api/commands/:id/retry", async (req, rep) => { const ctx = await auth.requireUser(req, rep, true); if (!ctx) return; const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" }); const existing = await repository.getCommand(id.data.id); if (!existing) return rep.code(404).send({ error: "NOT_FOUND" }); if (ctx.user.role !== "admin" && existing.createdBy !== ctx.user.id) return rep.code(403).send({ error: "FORBIDDEN" }); const command = await repository.retryCommand(id.data.id); if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" }); await repository.appendEvent(command.id, "requeued", "warning", "Reintento solicitado por el usuario"); notifyCommandAvailable(); rep.send({ command: publicCommand(command) }); });
+  app.post("/api/commands/:id/retry", async (req, rep) => {
+    const ctx = await auth.requireUser(req, rep, true); if (!ctx) return;
+    const id = idSchema.safeParse(req.params); if (!id.success) return rep.code(400).send({ error: "INVALID_ID" });
+    const existing = await repository.getCommand(id.data.id); if (!existing) return rep.code(404).send({ error: "NOT_FOUND" });
+    if (ctx.user.role !== "admin" && existing.createdBy !== ctx.user.id) return rep.code(403).send({ error: "FORBIDDEN" });
+    // A cancelled command never had a side effect (cancelCommand refuses
+    // once side_effect_started=1), so it's always safe to re-run in full.
+    // A failed/requires_attention news.publish or wordpress.share, though,
+    // can easily be a *partial* failure -- e.g. web/instagram/facebook/x
+    // already posted and only whatsapp is still pending. Blindly re-queuing
+    // the original payload re-runs every platform, duplicating the ones
+    // that already succeeded (this happened for real on 2026-08-24: a
+    // retry duplicated an Instagram post and half-posted to Facebook before
+    // it could be cancelled). remainingPlatforms() narrows the retry to
+    // only what didn't already succeed, using the platform-by-platform
+    // result the agent already reports back on completion/failure.
+    let payloadOverride: Record<string, unknown> | undefined;
+    if (existing.status !== "cancelled" && (existing.type === "news.publish" || existing.type === "wordpress.share")) {
+      const remaining = remainingPlatforms(existing);
+      if (remaining) {
+        if (remaining.length === 0) return rep.code(409).send({ error: "ALREADY_PUBLISHED", message: "Ya se publicó correctamente en todas las plataformas seleccionadas; no hay nada para reintentar." });
+        payloadOverride = { ...(existing.payload as Record<string, unknown>), platforms: remaining };
+      }
+    }
+    const command = await repository.retryCommand(id.data.id, payloadOverride);
+    if (!command) return rep.code(409).send({ error: "NOT_RETRYABLE" });
+    await repository.appendEvent(command.id, "requeued", "warning", payloadOverride ? `Reintento solicitado por el usuario (solo plataformas pendientes: ${(payloadOverride.platforms as string[]).join(", ")})` : "Reintento solicitado por el usuario");
+    notifyCommandAvailable(); rep.send({ command: publicCommand(command) });
+  });
   app.get("/api/audit", async (req, rep) => { const ctx = await auth.requireUser(req, rep); if (!ctx) return; if (ctx.user.role !== "admin") return rep.code(403).send({ error: "FORBIDDEN" }); rep.send({ items: await repository.listAudit(500) }); });
 
   app.post("/api/agent/heartbeat", async (req, rep) => { const agent = await requireAgent(req, rep, repository); if (!agent) return; const body = agentHeartbeatSchema.safeParse(req.body); if (!body.success || body.data.agentId !== agent.id) return rep.code(400).send({ error: "INVALID_HEARTBEAT" }); const updated = await repository.heartbeatAgent(agent.id, body.data.version, body.data.capabilities, body.data.localHealth); rep.send({ ok: true, agent: updated && { ...updated, tokenHash: undefined }, serverTime: new Date().toISOString() }); });
@@ -414,6 +442,32 @@ export async function createApp(repository: Repository) {
     app.setNotFoundHandler((request, reply) => request.url.startsWith("/api/") ? reply.code(404).send({ error: "NOT_FOUND" }) : reply.type("text/html").sendFile("index.html"));
   }
   return app;
+}
+
+// Reads the platform-by-platform breakdown the agent stores in a
+// news.publish/wordpress.share command's `result` (the same object the
+// local backend's /api/publish/jobs/:id or /api/automation/jobs/:id
+// returns, which has a `platform_results` map keyed by platform plus a
+// non-platform "global" key). Returns null when there's no usable
+// breakdown to narrow by (old command, unexpected shape, etc.) so the
+// caller falls back to retrying the original payload unchanged; returns
+// the list of platforms that still need a retry otherwise -- possibly
+// empty when everything already succeeded.
+function remainingPlatforms(existing: CommandInternal): string[] | null {
+  const originalPlatforms = Array.isArray((existing.payload as Record<string, unknown> | null)?.platforms)
+    ? ((existing.payload as Record<string, unknown>).platforms as unknown[]).map(String)
+    : null;
+  if (!originalPlatforms || !originalPlatforms.length) return null;
+  const result = existing.result as Record<string, unknown> | null;
+  const perPlatform = result && typeof result === "object" ? (result.platform_results ?? result.summary) : null;
+  if (!perPlatform || typeof perPlatform !== "object") return null;
+  const succeeded = new Set(
+    Object.entries(perPlatform as Record<string, unknown>)
+      .filter(([key, value]) => key !== "global" && value && typeof value === "object")
+      .filter(([, value]) => Number((value as Record<string, unknown>).items_failed ?? 0) === 0 && Number((value as Record<string, unknown>).items_success ?? 0) > 0)
+      .map(([key]) => key),
+  );
+  return originalPlatforms.filter((platform) => !succeeded.has(platform));
 }
 
 async function requireAgent(request: FastifyRequest, reply: FastifyReply, repository: Repository): Promise<AgentRecord | null> {

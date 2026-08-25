@@ -174,11 +174,13 @@ export class MySqlRepository implements Repository {
     const [result] = await this.pool.query<any>("UPDATE commands SET status='cancelled',completed_at=UTC_TIMESTAMP(3),updated_at=UTC_TIMESTAMP(3) WHERE id=? AND status IN ('queued','claimed') AND side_effect_started=0", [id]);
     if (result.affectedRows !== 1) return null; await this.pool.query("DELETE FROM resource_locks WHERE command_id=?", [id]); return this.getCommand(id);
   }
-  async retryCommand(id: string) {
+  async retryCommand(id: string, payloadOverride?: Record<string, unknown> | null) {
+    const setPayload = payloadOverride ? ",payload_json=?" : "";
+    const params = payloadOverride ? [JSON.stringify(payloadOverride), id] : [id];
     const [result] = await this.pool.query<any>(
       `UPDATE commands SET status='queued',current_stage='queued',progress_percent=0,error_code=NULL,error_message=NULL,retryable=0,completed_at=NULL,
-       assigned_agent_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,side_effect_started=0,updated_at=UTC_TIMESTAMP(3)
-       WHERE id=? AND status IN ('failed','waiting_manual_retry','requires_attention')`, [id],
+       assigned_agent_id=NULL,lease_token_hash=NULL,lease_expires_at=NULL,side_effect_started=0,updated_at=UTC_TIMESTAMP(3)${setPayload}
+       WHERE id=? AND status IN ('failed','waiting_manual_retry','requires_attention','cancelled')`, params,
     );
     if (result.affectedRows !== 1) return null; await this.pool.query("DELETE FROM resource_locks WHERE command_id=?", [id]); return this.getCommand(id);
   }

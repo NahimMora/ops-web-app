@@ -7,7 +7,7 @@ const transitions: Record<CommandStatus, Set<CommandStatus>> = {
   claimed: new Set(["running", "queued", "failed", "cancelled", "requires_attention"]),
   running: new Set(["completed", "partial_success", "completed_unverified", "waiting_manual_retry", "requires_attention", "failed", "cancelled"]),
   completed: new Set(), partial_success: new Set(), completed_unverified: new Set(), waiting_manual_retry: new Set(["queued", "cancelled"]),
-  requires_attention: new Set(["queued", "cancelled"]), failed: new Set(["queued"]), cancelled: new Set(),
+  requires_attention: new Set(["queued", "cancelled"]), failed: new Set(["queued"]), cancelled: new Set(["queued"]),
 };
 
 export function isTerminal(status: CommandStatus): boolean { return terminal.has(status); }

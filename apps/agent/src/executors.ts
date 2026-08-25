@@ -90,7 +90,7 @@ async function publishNews(p: Record<string, any>, api: LocalApi, ctx: Execution
   await ctx.sideEffect();
   const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis }, 60_000);
   const jobId = String(queued.job_id); await ctx.progress("local_job_queued", 5, jobId);
-  const job = await poll(api, `/api/publish/jobs/${encodeURIComponent(jobId)}`, (data) => data?.job ?? data, ["success", "partial_success", "failed"], ctx, jobId, 4 * 60 * 60_000);
+  const job = await pollPublishJob(api, jobId, ctx);
   return { status: mapStatus(job.status), result: job, localJobId: jobId } as ExecutionResult;
 }
 
@@ -115,8 +115,29 @@ async function shareWordPress(p: Record<string, any>, api: LocalApi, ctx: Execut
     whatsapp_group_set: p.whatsappGroupSet,
     instagram_emojis: p.instagramEmojis,
   });
-  const jobId = String(queued.job_id); const job = await poll(api, `/api/publish/jobs/${encodeURIComponent(jobId)}`, (data) => data?.job ?? data, ["success", "partial_success", "failed"], ctx, jobId, 4 * 60 * 60_000);
+  const jobId = String(queued.job_id); const job = await pollPublishJob(api, jobId, ctx);
   return { status: mapStatus(job.status), result: job, localJobId: jobId } as ExecutionResult;
+}
+
+// Cancelling a publish job goes through /api/automation/jobs/:id/cancel,
+// which sets status "cancelled" -- a status the legacy /api/publish/jobs/:id
+// terminal list didn't include, so a cancelled-out-from-under-it poll would
+// never notice and would keep polling for up to 4h (or until the agent
+// process died), leaving the Ops command orphaned in "claimed" forever. If
+// polling itself throws (network hiccup, timeout) we still try one direct
+// read of the job so whatever platform_results it reached are preserved on
+// the command instead of being lost behind a bare error message -- that's
+// what lets a retry later be scoped to only the platforms that didn't
+// succeed (see the server's /api/commands/:id/retry).
+async function pollPublishJob(api: LocalApi, jobId: string, ctx: ExecutionContext) {
+  const path = `/api/publish/jobs/${encodeURIComponent(jobId)}`;
+  try {
+    return await poll(api, path, (data) => data?.job ?? data, ["success", "partial_success", "failed", "cancelled"], ctx, jobId, 4 * 60 * 60_000);
+  } catch (error) {
+    const last = await api.get(path, 15_000).then((data) => data?.job ?? data).catch(() => null);
+    if (last?.status) return last;
+    throw error;
+  }
 }
 
 async function prepareArticles(result: any, api: LocalApi) {

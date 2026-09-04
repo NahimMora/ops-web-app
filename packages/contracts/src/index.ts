@@ -132,7 +132,24 @@ export function resourceKeyFor(type: CommandType, payload: Record<string, unknow
   if (["automation.start", "automation.stop", "automation.restart"].includes(type)) return "automation:runtime";
   if (type === "xvideo.create_upload") return `video-upload:${String(payload.uploadId)}`;
   if (type.startsWith("xvideo.")) return `video:${String(payload.jobId ?? "pipeline")}`;
-  if (type === "news.publish" || type === "wordpress.share") return "publishing:global";
+  if (type === "news.publish" || type === "wordpress.share") {
+    // Was a single "publishing:global" key for every command of these two
+    // types, so the local backend's own concurrency (up to 3 parallel
+    // news_publish jobs, WhatsApp/X already serialized in their own
+    // single-consumer queues, see WebApp_HolaSalta/CLAUDE.md) never got
+    // used — one command claimed here always blocked every other queued
+    // one, whatever platforms it touched (see the concurrency audit,
+    // Hallazgo 02). Keying by the *set* of platforms instead means two
+    // commands publishing to the exact same platforms still serialize
+    // (the common case: same behavior as before), but a command that
+    // doesn't share any platform combination with another can now be
+    // claimed and run at the same time.
+    const platforms = Array.isArray((payload as { platforms?: unknown }).platforms)
+      ? ((payload as { platforms: unknown[] }).platforms as unknown[]).map((p) => String(p))
+      : [];
+    const uniqueSorted = [...new Set(platforms)].sort();
+    return uniqueSorted.length ? `publishing:${uniqueSorted.join("+")}` : "publishing:global";
+  }
   if (type.startsWith("instagram.")) return "instagram:default";
   return null;
 }

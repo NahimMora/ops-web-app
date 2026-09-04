@@ -16,6 +16,36 @@ $BackendRoot = Split-Path -Parent $BackendEnvPath
 $BackendLauncher = Join-Path $BackendRoot "start_backend.bat"
 $BackendPort = Get-EnvValue -Path $BackendEnvPath -Name "BACKEND_PORT"
 if (-not $BackendPort) { $BackendPort = "8000" }
+
+# Baileys (WhatsApp, optional): only watched when the backend is actually
+# configured to use it - WHATSAPP_ENGINE=playwright (the default) means no
+# such service is expected to be running at all, and "recovering" it then
+# would just be noise/wrong. See WebApp_HolaSalta/CLAUDE.md's "Motor de
+# WhatsApp" section. This mirrors the backend health-check loop below, but
+# recovery here is "the PM2 daemon and/or the app under it isn't there at
+# all" (start-pm2.ps1's `pm2 resurrect`, same script
+# install-pm2-task.ps1 wires into AtLogOn) - PM2 itself already handles the
+# underlying Node process crash-looping (ecosystem.config.js's
+# min_uptime/max_restarts/restart_delay), so this supervisor only needs to
+# step in when there's no PM2 daemon left to do that job (observed
+# 2026-09-04: the daemon itself died, silently, with nothing watching it).
+$BaileysEnabled = ((Get-EnvValue -Path $BackendEnvPath -Name "WHATSAPP_ENGINE") -eq "baileys")
+$BaileysPort = Get-EnvValue -Path $BackendEnvPath -Name "WPP_BAILEYS_PORT"
+if (-not $BaileysPort) { $BaileysPort = "8791" }
+$BaileysServiceRoot = Join-Path $BackendRoot "whatsapp\baileys-service"
+$BaileysStartScript = Join-Path $BaileysServiceRoot "scripts\start-pm2.ps1"
+if ($BaileysEnabled -and -not (Test-Path -LiteralPath $BaileysStartScript)) {
+  Write-Warning "WHATSAPP_ENGINE=baileys pero no se encontro $BaileysStartScript - el supervisor no va a poder recuperar ese servicio."
+  $BaileysEnabled = $false
+}
+# Recovery is a full `pm2 resurrect`/`pm2 start`, not a cheap check - and if
+# something genuinely needs a human (corrupted auth/, pm2 itself missing),
+# retrying every 10s would just spam supervisor.log and burn CPU for no
+# benefit. One attempt per cooldown window is enough; a real recovery is
+# visible again well within it.
+$BaileysRecoveryCooldownSeconds = 60
+$baileysLastRecoveryAttempt = $null
+
 $AgentEntry = Join-Path $OpsRoot "dist\agent\main.js"
 $StateDir = Join-Path $OpsRoot "agent-state"
 $SupervisorLog = Join-Path $StateDir "supervisor.log"
@@ -117,6 +147,34 @@ while ($true) {
     } else {
       $backendUnhealthySince = $null
       $backendUnhealthyLogged = $false
+    }
+
+    if ($BaileysEnabled) {
+      $baileysReady = $false
+      try {
+        $baileysHealth = Invoke-WebRequest -UseBasicParsing -Uri ("http://127.0.0.1:{0}/health" -f $BaileysPort) -TimeoutSec 4
+        # Any 200 means the process itself is up and answering - "ready" vs.
+        # "needs_auth"/"connecting" is a WhatsApp-session concern (needs a
+        # human for QR/pairing), not something restarting the process fixes.
+        # Only a connection failure (process/daemon not there) is this
+        # supervisor's job.
+        $baileysReady = $baileysHealth.StatusCode -eq 200
+      } catch { $baileysReady = $false }
+
+      if (-not $baileysReady) {
+        $now = Get-Date
+        if ($null -eq $baileysLastRecoveryAttempt -or ((New-TimeSpan -Start $baileysLastRecoveryAttempt -End $now).TotalSeconds -ge $BaileysRecoveryCooldownSeconds)) {
+          Write-SafeLog "Servicio Baileys (WhatsApp) no responde en 127.0.0.1:$BaileysPort; ejecutando start-pm2.ps1 para recuperarlo."
+          $baileysLastRecoveryAttempt = $now
+          try {
+            & $BaileysStartScript *>> $SupervisorLog
+          } catch {
+            Write-SafeLog ("Fallo al recuperar el servicio Baileys: " + $_.Exception.Message)
+          }
+        }
+      } else {
+        $baileysLastRecoveryAttempt = $null
+      }
     }
 
     if ($null -eq $agentProcess -or $agentProcess.HasExited) {

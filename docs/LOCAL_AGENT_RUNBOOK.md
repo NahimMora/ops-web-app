@@ -67,7 +67,12 @@ No usar `git reset --hard`; si hay cambios locales, revisarlos antes.
 ### Comando `requires_attention`
 
 1. No pulsar Reintentar inmediatamente.
-2. Revisar `localJobId` y eventos.
+2. Revisar `localJobId` y eventos. El `trace_id` (mismo valor que
+   `command.id`, ver `WebApp_HolaSalta/CLAUDE.md` sección "Observabilidad")
+   permite buscar ese comando en los logs JSON estructurados del backend y,
+   si tocó WhatsApp por Baileys, también en los logs del servicio
+   (`pm2 logs baileys-service`) — un solo valor para correlacionar todo el
+   camino sin cruzar timestamps a mano.
 3. Consultar el destino externo y confirmar si publicó.
 4. Si ya publicó, dejar el comando como evidencia y no repetir.
 5. Si se confirma que no publicó, usar Reintentar manualmente.
@@ -83,11 +88,18 @@ No usar `git reset --hard`; si hay cambios locales, revisarlos antes.
 ## Corte de luz
 
 1. BIOS/UEFI debe tener Restore on AC Power Loss.
-2. Windows debe iniciar la sesión operativa para perfiles Playwright.
+2. Windows debe iniciar la sesión operativa para perfiles Playwright — y,
+   si `WHATSAPP_ENGINE=baileys` con la tarea "HolaSalta Baileys Service"
+   registrada (`install-pm2-task.ps1`), también para que PM2 restaure el
+   servicio Baileys (mismo trigger AtLogOn, ver
+   `WebApp_HolaSalta/backend/whatsapp/baileys-service/README.md`).
 3. Scheduled Task usa StartWhenAvailable y reinicios.
 4. Al volver:
    - Hostinger siguió aceptando comandos.
    - backend/agente reaparecen;
+   - si `WHATSAPP_ENGINE=baileys`, confirmar
+     `GET http://127.0.0.1:8791/health` -> `status: "ready"` (la sesión
+     persiste en `auth/`, no debería pedir QR de nuevo);
    - leases vencidas se clasifican automáticamente;
    - trabajos seguros vuelven a cola;
    - efectos inciertos requieren revisión manual.

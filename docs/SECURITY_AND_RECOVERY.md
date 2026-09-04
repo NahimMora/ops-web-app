@@ -40,6 +40,11 @@ Después de guardar la contraseña inicial en un gestor, borrar el archivo tempo
 - Código: GitHub `main` es recuperable; tags de release recomendados.
 - Secretos: gestor de contraseñas y copia cifrada fuera de la PC.
 - Perfiles Playwright/WhatsApp: incluirlos en la política de backup existente, nunca Git/R2 público.
+- Sesión de WhatsApp vía Baileys (si `WHATSAPP_ENGINE=baileys`):
+  `WebApp_HolaSalta\backend\whatsapp\baileys-service\auth\` — mismo criterio
+  que los perfiles Playwright (backup privado, nunca Git/R2 público; ya
+  está en `.gitignore`). Formato de Baileys, no compatible con los
+  perfiles Playwright ni viceversa.
 - R2: habilitar versionado/reglas de lifecycle según retención deseada.
 
 ## Retención

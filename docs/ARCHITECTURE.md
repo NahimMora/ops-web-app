@@ -10,7 +10,8 @@ La alternativa más factible y rentable es una arquitectura híbrida. Cloud Star
 |---|---|---|
 | Hostinger | login, SPA, validación, MySQL, cola, leases, auditoría, snapshots y firma de PUT temporales R2 | Playwright, ffmpeg, scraping, render de imágenes/video, publicación |
 | Agente local | polling, heartbeats, adaptación de comandos, seguimiento, stream a R2 | interfaz pública, almacenamiento de sesiones web |
-| Backend actual | lógica existente, navegadores, scraping, media, redes | exposición pública |
+| Backend actual | lógica existente, navegadores (X, y WhatsApp en modo Playwright), scraping, media, redes | exposición pública |
+| Servicio Baileys (WhatsApp, opcional) | protocolo WhatsApp directo vía Node/TS local, PM2-supervisado, sin navegador — alternativa a Playwright para WhatsApp, seleccionable por config (`WHATSAPP_ENGINE`), sigue siendo ejecución local, no VPS | exposición pública, lógica de otras plataformas |
 | MySQL | usuarios, sesiones hasheadas, agentes, comandos, eventos, locks, snapshots | secretos operativos locales |
 | R2 | imágenes y videos terminados | ejecución, cola o credenciales web |
 

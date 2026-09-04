@@ -35,6 +35,28 @@ código o docs.
   reemplaza esa lógica, solo agrega una interfaz remota sin exponer el
   puerto 8000 a internet.
 
+## Observabilidad: trace_id
+
+`command.id` (el que ya usa todo `apps/server`/`apps/agent`) se reutiliza
+como `trace_id` end-to-end hacia el backend Python y el servicio Baileys —
+no hay un id nuevo/paralelo que mantener sincronizado. `apps/agent/src/main.ts`
+lo pasa como `traceId` en el `ExecutionContext` que arma por cada comando
+(ver `executors.ts`), y `publishNews()` lo manda en el body de
+`POST /api/publish/` como campo `trace_id`. Ver el `CLAUDE.md` de
+`WebApp_HolaSalta` ("Observabilidad: trace_id, logs estructurados, Sentry")
+para la cadena completa. Si agregás un `executor` nuevo que también debería
+ser rastreable de punta a punta, sumale `trace_id: ctx.traceId` al payload
+que le mandás al backend, siguiendo el mismo patrón que `publishNews`.
+
+`apps/server` ya tenía logging estructurado (pino vía Fastify) y un
+`reqId` por request (`requestIdHeader: "x-request-id"`) antes de esta
+tarea — no se agregó Sentry acá (fuera del alcance que pidió el usuario:
+backend Python + servicio Baileys + frontend Ops si hiciera falta). Sí se
+agregó un log explícito en la creación de comandos
+(`req.log.info({ commandId, type, resourceKey }, "command created")`,
+`app.ts`) porque es el único momento en que `command.id` todavía no
+aparece en ningún path de URL que el access log de Fastify ya capture.
+
 ## Scripts clave (`scripts/`)
 
 - `supervisor.ps1`: corre como tarea de Windows **"HolaSalta Ops Local

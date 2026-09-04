@@ -293,7 +293,17 @@ export async function createApp(repository: Repository) {
     const payloadHash = sha256(JSON.stringify(payload));
     const result = await repository.createCommand({ id: randomUUID(), type, payload, payloadHash, idempotencyKey: key, priority: parsed.data.priority, requiredCapability: requiredCapability(type), resourceKey: resourceKeyFor(type, payload), createdBy: ctx.user.id, maxAttempts: hasExternalSideEffect(type) ? 1 : 3 });
     if (!safeEqual(result.command.payloadHash, payloadHash)) return rep.code(409).send({ error: "IDEMPOTENCY_CONFLICT", message: "La clave ya fue usada con otro payload" });
-    if (result.created) { await repository.appendEvent(result.command.id, "queued", "info", "Comando encolado", { type }); notifyCommandAvailable(); }
+    if (result.created) {
+      await repository.appendEvent(result.command.id, "queued", "info", "Comando encolado", { type });
+      notifyCommandAvailable();
+      // The one moment command.id (reused end-to-end as trace_id once this
+      // reaches the local backend - see WebApp_HolaSalta/CLAUDE.md's
+      // observability section) doesn't already appear in a URL path that
+      // Fastify's own per-request access log captures - every later
+      // agent.../:id/... call does. Cheap, one line, makes "grep this id"
+      // work from the very start of the job's life.
+      req.log.info({ commandId: result.command.id, type, resourceKey: result.command.resourceKey }, "command created");
+    }
     await repository.addAudit({ actorType: "user", actorId: ctx.user.id, action: "command.create", targetType: "command", targetId: result.command.id, result: result.created ? "created" : "reused", metadata: { type } });
     rep.code(result.created ? 201 : 200).send({ command: publicCommand(result.command), created: result.created });
   });

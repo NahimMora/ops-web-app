@@ -1,0 +1,31 @@
+version: 2
+updates:
+  # Single package.json at repo root (Fastify server + local agent +
+  # Vite/React frontend, all one monorepo - no sub-packages here).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+    groups:
+      # Everything low-risk (patch/minor, non-major) in one PR instead of
+      # opening a dozen separate ones for routine bumps.
+      routine:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
+    # Majors always land as their own individual PR (excluded from the
+    # group above by only matching minor/patch) - deliberately not
+    # auto-merged anywhere; Dependabot proposes, a human decides.
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"

@@ -13,6 +13,12 @@ export type ExecutionContext = {
   refreshSnapshots(keys?: string[], onProgress?: (key: string, current: number, total: number) => Promise<void> | void): Promise<void>;
   getTemporaryMediaUpload(id: string): Promise<TemporaryMediaUpload>;
   completeTemporaryMediaUpload(id: string, received: boolean, errorMessage?: string): Promise<unknown>;
+  // The Ops command id, reused as the end-to-end trace_id for this job (Ops
+  // -> Agent -> backend -> common_queue -> platform worker -> Baileys) —
+  // see WebApp_HolaSalta/CLAUDE.md's observability section. Not a new id:
+  // command.id was already unique per job, this just threads it down to
+  // handlers that couldn't see `command` directly before.
+  traceId: string;
 };
 const scraperRoutes: Record<string, string> = { minutouno: "/api/scraper", tn: "/api/scraper-tn", na: "/api/scraper-na", ambito: "/api/scraper-ambito", aries: "/api/scraper-ariesonline", justicia: "/api/scraper-justiciasalta", fiscales: "/api/scraper-fiscales", nuevodiario: "/api/scraper-nuevodiario", elonce: "/api/scraper-elonce", eloncesalta: "/api/scraper-eloncesalta", eltribuno: "/api/scraper-eltribuno", infobae: "/api/scraper-infobae", quepasasalta: "/api/scraper-quepasasalta" };
 
@@ -88,7 +94,7 @@ async function publishNews(p: Record<string, any>, api: LocalApi, ctx: Execution
   // in Preparadas (raw title/body/image, untouched by AI).
   const directNewsItems = p.directNewsItems;
   await ctx.sideEffect();
-  const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis }, 60_000);
+  const queued = await api.post("/api/publish/", { selected_indices: p.selectedIndices, direct_news_items: directNewsItems, platforms: p.platforms, whatsapp_groups: p.whatsappGroups, whatsapp_group_set: p.whatsappGroupSet, instagram_emojis: p.instagramEmojis, trace_id: ctx.traceId }, 60_000);
   const jobId = String(queued.job_id); await ctx.progress("local_job_queued", 5, jobId);
   const job = await pollPublishJob(api, jobId, ctx);
   return { status: mapStatus(job.status), result: job, localJobId: jobId } as ExecutionResult;

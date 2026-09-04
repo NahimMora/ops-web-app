@@ -58,6 +58,9 @@ async function processLoop(workerId: number) {
           refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
           getTemporaryMediaUpload: (id) => ops.temporaryMediaUpload(id),
           completeTemporaryMediaUpload: (id, received, errorMessage) => ops.completeTemporaryMediaUpload(id, received, errorMessage),
+          // Reused as the end-to-end trace_id (see ExecutionContext.traceId
+          // in executors.ts) - command.id was already unique per job.
+          traceId: command.id,
         });
         const refreshKeys = snapshotKeysAfter(command.type);
         if (refreshKeys.length) {

@@ -102,6 +102,49 @@ no alcanza con Node 18, que es lo que pide el backend para SU parte
   `Register-ScheduledTask` con "No se efectuó ninguna asignación entre
   los nombres de cuenta...". Se corrigió a `$env:COMPUTERNAME`.
 
+## Segundo Cerebro (gestión de conocimiento personal)
+
+Este repo está trackeado por el "Segundo Cerebro" personal
+(`AutoPublicadores/2doCerebro`, https://ops.moraapps.com) bajo el proyecto
+**HS** (HolaSalta), módulo **Ops**.
+
+Si el usuario pregunta algo como "¿qué bugs/ideas/incidentes anoté acá?"
+(o equivalente), consultá la API en vez de inventar o asumir que no hay
+nada pendiente:
+
+```bash
+curl -s https://ops.moraapps.com/api/shortcuts \
+  -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"list_items","projectCode":"HS","moduleSlug":"ops"}'
+```
+
+- **Resolviste algo que ya estaba anotado ahí** (id visible en la
+  respuesta anterior, formato `HS-BUG-0007`, o porque el usuario te lo
+  dijo directamente): marcalo resuelto en vez de dejarlo como pendiente
+  fantasma, y referencialo en el commit (`fix: ... [HS-BUG-0007]`):
+
+```bash
+curl -s https://ops.moraapps.com/api/shortcuts \
+  -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"resolve_item","publicId":"HS-BUG-0007"}'
+```
+
+- **Encontraste un bug real que no vas a arreglar ahora, o una idea/mejora
+  para más adelante**: anotala en vez de perderla en la conversación:
+
+```bash
+curl -s https://ops.moraapps.com/api/shortcuts \
+  -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"capture","content":"texto libre describiendo el bug/idea","mode":"interpret","projectCode":"HS","moduleSlug":"ops"}'
+```
+
+`SEGUNDO_CEREBRO_TOKEN` vive en `.env` (gitignored — nunca commitear su
+valor ni imprimirlo). Si no está seteado en la máquina donde corrés, avisá
+que esta integración no está disponible en vez de fallar en silencio.
+
 ## Gotchas de Windows
 
 - PowerShell restringido por defecto: `Set-ExecutionPolicy -Scope Process

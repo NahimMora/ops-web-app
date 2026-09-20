@@ -105,18 +105,29 @@ no alcanza con Node 18, que es lo que pide el backend para SU parte
 ## Segundo Cerebro (gestión de conocimiento personal)
 
 Este repo está trackeado por el "Segundo Cerebro" personal
-(`AutoPublicadores/2doCerebro`, https://ops.moraapps.com) bajo el proyecto
-**HS** (HolaSalta), módulo **Ops**.
+(`AutoPublicadores/2doCerebro`) bajo el proyecto **HS** (HolaSalta),
+módulo **Ops**. La integración se configura con cuatro variables de
+entorno (viven en `.env`, gitignored — nunca commitear sus valores ni
+imprimirlos):
+
+- `SEGUNDO_CEREBRO_URL` — base de la API (`https://ops.moraapps.com`).
+- `SEGUNDO_CEREBRO_TOKEN` — token Bearer de esta integración.
+- `SEGUNDO_CEREBRO_PROJECT_CODE` — `HS`.
+- `SEGUNDO_CEREBRO_MODULE_SLUG` — `ops`.
+
+Si no están seteadas en la máquina donde corrés, avisá que esta
+integración no está disponible en vez de fallar en silencio (y nunca
+hardcodees el token en un comando si podés referenciar la variable).
 
 Si el usuario pregunta algo como "¿qué bugs/ideas/incidentes anoté acá?"
 (o equivalente), consultá la API en vez de inventar o asumir que no hay
 nada pendiente:
 
 ```bash
-curl -s https://ops.moraapps.com/api/shortcuts \
+curl -s "$SEGUNDO_CEREBRO_URL/api/shortcuts" \
   -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"action":"list_items","projectCode":"HS","moduleSlug":"ops"}'
+  -d "{\"action\":\"list_items\",\"projectCode\":\"$SEGUNDO_CEREBRO_PROJECT_CODE\",\"moduleSlug\":\"$SEGUNDO_CEREBRO_MODULE_SLUG\"}"
 ```
 
 - **Resolviste algo que ya estaba anotado ahí** (id visible en la
@@ -125,7 +136,7 @@ curl -s https://ops.moraapps.com/api/shortcuts \
   fantasma, y referencialo en el commit (`fix: ... [HS-BUG-0007]`):
 
 ```bash
-curl -s https://ops.moraapps.com/api/shortcuts \
+curl -s "$SEGUNDO_CEREBRO_URL/api/shortcuts" \
   -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"action":"resolve_item","publicId":"HS-BUG-0007"}'
@@ -135,15 +146,11 @@ curl -s https://ops.moraapps.com/api/shortcuts \
   para más adelante**: anotala en vez de perderla en la conversación:
 
 ```bash
-curl -s https://ops.moraapps.com/api/shortcuts \
+curl -s "$SEGUNDO_CEREBRO_URL/api/shortcuts" \
   -H "Authorization: Bearer $SEGUNDO_CEREBRO_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"action":"capture","content":"texto libre describiendo el bug/idea","mode":"interpret","projectCode":"HS","moduleSlug":"ops"}'
+  -d "{\"action\":\"capture\",\"content\":\"texto libre describiendo el bug/idea\",\"mode\":\"interpret\",\"projectCode\":\"$SEGUNDO_CEREBRO_PROJECT_CODE\",\"moduleSlug\":\"$SEGUNDO_CEREBRO_MODULE_SLUG\"}"
 ```
-
-`SEGUNDO_CEREBRO_TOKEN` vive en `.env` (gitignored — nunca commitear su
-valor ni imprimirlo). Si no está seteado en la máquina donde corrés, avisá
-que esta integración no está disponible en vez de fallar en silencio.
 
 ## Gotchas de Windows
 

@@ -45,6 +45,19 @@ if ($BaileysEnabled -and -not (Test-Path -LiteralPath $BaileysStartScript)) {
 # visible again well within it.
 $BaileysRecoveryCooldownSeconds = 60
 $baileysLastRecoveryAttempt = $null
+# start-pm2.ps1 now serializes itself against concurrent callers via a
+# named mutex with its own 3-minute WaitOne (see its comments) - two
+# legitimate callers (this supervisor + the "HolaSalta Baileys Service"
+# logon task) queuing up within that window is the expected, designed
+# case, not a hang. This bound must stay above those 3 minutes, or the
+# supervisor would Stop-Job a caller that's just waiting its turn on the
+# lock - exactly the race the mutex exists to prevent. It's defense in
+# depth against genuine hangs only: a synchronous `&` call here previously
+# froze this ENTIRE loop - meaning backend and agent monitoring too, not
+# just Baileys - for hours when start-pm2.ps1 hung (observed 2026-09-06).
+# Running it as a job with a hard timeout means a stuck recovery can never
+# take the rest of this supervisor down with it.
+$BaileysRecoveryTimeoutSeconds = 200
 
 $AgentEntry = Join-Path $OpsRoot "dist\agent\main.js"
 $StateDir = Join-Path $OpsRoot "agent-state"
@@ -167,7 +180,17 @@ while ($true) {
           Write-SafeLog "Servicio Baileys (WhatsApp) no responde en 127.0.0.1:$BaileysPort; ejecutando start-pm2.ps1 para recuperarlo."
           $baileysLastRecoveryAttempt = $now
           try {
-            & $BaileysStartScript *>> $SupervisorLog
+            $baileysJob = Start-Job -ScriptBlock {
+              param($ScriptPath, $LogPath)
+              & $ScriptPath *>> $LogPath
+            } -ArgumentList $BaileysStartScript, $SupervisorLog
+            if (Wait-Job -Job $baileysJob -Timeout $BaileysRecoveryTimeoutSeconds) {
+              Receive-Job -Job $baileysJob -ErrorAction SilentlyContinue | Out-Null
+            } else {
+              Write-SafeLog ("start-pm2.ps1 no termino en {0}s; se corta para no bloquear el supervisor (puede seguir corriendo en 2do plano)." -f $BaileysRecoveryTimeoutSeconds)
+              Stop-Job -Job $baileysJob -ErrorAction SilentlyContinue
+            }
+            Remove-Job -Job $baileysJob -Force -ErrorAction SilentlyContinue
           } catch {
             Write-SafeLog ("Fallo al recuperar el servicio Baileys: " + $_.Exception.Message)
           }

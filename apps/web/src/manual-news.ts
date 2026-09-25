@@ -6,6 +6,12 @@ export type ManualNewsDraft = {
   body: string;
   image: string;
   category: string;
+  // Whether the AI editorial rewrite may touch this note before publishing.
+  // Defaults to false ("sin IA"): a manually-written note is already the
+  // operator's final text, so the pipeline should publish it verbatim
+  // (manual_override: true on the backend, same exact-passthrough path as a
+  // WordPress import) unless the operator opts in to a rewrite pass.
+  aiRewrite: boolean;
 };
 
 export const EMPTY_MANUAL_NEWS_DRAFT: ManualNewsDraft = {
@@ -14,6 +20,7 @@ export const EMPTY_MANUAL_NEWS_DRAFT: ManualNewsDraft = {
   body: "",
   image: "",
   category: "",
+  aiRewrite: false,
 };
 
 export const MANUAL_NEWS_SOURCE = "Redacción HolaSalta";
@@ -67,6 +74,9 @@ export function buildManualNewsItem(draft: ManualNewsDraft): ContentItem {
     source_id: `manual-${draft.sourceId || crypto.randomUUID()}`,
     origen: "manual",
     es_manual: true,
+    // See ManualNewsDraft.aiRewrite: inverted here because the backend flag
+    // names the passthrough (skip AI), not the rewrite itself.
+    manual_override: !draft.aiRewrite,
   };
 }
 

@@ -402,6 +402,11 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
             <Field label="Noticia" hint={`${draft.body.length}/50.000 caracteres · separá los párrafos con una línea en blanco`}>
               <textarea className="manual-news-body" value={draft.body} onChange={(event) => update("body", event.target.value)} maxLength={50_000} rows={16} placeholder="Escribí el contenido completo de la noticia…" />
             </Field>
+            <label className="switch-row">
+              <input type="checkbox" checked={draft.aiRewrite} onChange={(event) => update("aiRewrite", event.target.checked)} />
+              Dejar que la IA repase y reescriba el texto antes de publicar
+            </label>
+            {!draft.aiRewrite && <p className="card-intro">Por defecto se publica exactamente lo que escribiste arriba, sin pasar por el reescritor editorial.</p>}
             <div className="manual-meta-grid">
               <Field label="Categoría" hint="Si no elegís una, el pipeline la clasifica según el título y el contenido.">
                 <select value={draft.category} onChange={(event) => update("category", event.target.value)}>

@@ -8,6 +8,7 @@ const validDraft = {
   body: "Primer párrafo de la noticia.\n\nSegundo párrafo con más información.",
   image: "https://example.com/noticia.jpg",
   category: "Salta",
+  aiRewrite: false,
 };
 
 describe("manual news publication", () => {
@@ -28,8 +29,14 @@ describe("manual news publication", () => {
       source_id: `manual-${validDraft.sourceId}`,
       origen: "manual",
       es_manual: true,
+      manual_override: true,
     });
     expect(item.extracto).toBe("Primer párrafo de la noticia. Segundo párrafo con más información.");
+  });
+
+  it("only lets the AI rewrite touch the note when the operator opts in", () => {
+    expect(buildManualNewsItem(validDraft).manual_override).toBe(true);
+    expect(buildManualNewsItem({ ...validDraft, aiRewrite: true }).manual_override).toBe(false);
   });
 
   it("validates required editorial fields and rejects non-http image values", () => {

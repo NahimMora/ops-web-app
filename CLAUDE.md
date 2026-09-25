@@ -163,3 +163,23 @@ curl -s "$SEGUNDO_CEREBRO_URL/api/shortcuts" \
 - `dist/` está gitignored (se compila por PC, `npm run build`/`build:agent`)
   — un `git pull` solo no actualiza el agente corriendo, hay que
   reconstruir y reiniciar el proceso (`deploy.ps1` ya lo hace).
+
+## Segundo Cerebro (gestión de conocimiento)
+
+Este repo está trackeado por el "Segundo Cerebro" personal (app aparte,
+`AutoPublicadores/2doCerebro`) bajo el proyecto **HS** (HolaSalta), módulo
+**Ops**.
+
+- **Documentación**: `README.md`, este archivo y todo `docs/**/*.md`
+  (`ARCHITECTURE.md`, `SECURITY_AND_RECOVERY.md`, `PLAN_END_TO_END.md`,
+  etc.) se sincronizan de **solo lectura** hacia el Segundo Cerebro — no se
+  duplica nada, solo queda buscable desde el dashboard.
+- **Pendientes reales**: seguí documentando acá como hasta ahora. Si además
+  querés que algo aparezca en el dashboard del Segundo Cerebro, agregalo ahí
+  como captura.
+- **IDs**: si un ítem del Segundo Cerebro ya existe para lo que estás
+  resolviendo (formato `HS-BUG-0014`), referencialo en el commit:
+  `fix: ... [HS-BUG-0014]`.
+- Esto es solo lectura desde afuera — la regla dura de "dónde corre el
+  servicio" (arriba) sigue siendo la autoridad final, el Segundo Cerebro no
+  ejecuta ni orquesta nada acá.

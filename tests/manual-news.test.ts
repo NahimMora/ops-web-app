@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { commandPayloadSchemas } from "../packages/contracts/src/index.js";
-import { buildManualNewsItem, MANUAL_NEWS_CATEGORIES, validateManualNewsDraft } from "../apps/web/src/manual-news.js";
+import { buildManualNewsItem, createManualNewsDraft, MANUAL_NEWS_CATEGORIES, validateManualNewsDraft } from "../apps/web/src/manual-news.js";
 
 const validDraft = {
   sourceId: "db266901-ab02-4a8c-930d-cba463fc1b68",
@@ -34,9 +34,10 @@ describe("manual news publication", () => {
     expect(item.extracto).toBe("Primer párrafo de la noticia. Segundo párrafo con más información.");
   });
 
-  it("only lets the AI rewrite touch the note when the operator opts in", () => {
-    expect(buildManualNewsItem(validDraft).manual_override).toBe(true);
+  it("sends new notes through the AI pass by default and skips it only when turned off", () => {
+    expect(createManualNewsDraft().aiRewrite).toBe(true);
     expect(buildManualNewsItem({ ...validDraft, aiRewrite: true }).manual_override).toBe(false);
+    expect(buildManualNewsItem({ ...validDraft, aiRewrite: false }).manual_override).toBe(true);
   });
 
   it("validates required editorial fields and rejects non-http image values", () => {

@@ -6,11 +6,12 @@ export type ManualNewsDraft = {
   body: string;
   image: string;
   category: string;
-  // Whether the AI editorial rewrite may touch this note before publishing.
-  // Defaults to false ("sin IA"): a manually-written note is already the
-  // operator's final text, so the pipeline should publish it verbatim
-  // (manual_override: true on the backend, same exact-passthrough path as a
-  // WordPress import) unless the operator opts in to a rewrite pass.
+  // Whether the AI editorial pass may polish this note before publishing.
+  // Defaults to true: most manual notes arrive as rough drafts (often in
+  // ALL CAPS, copied from social posts) and need the pass. The operator
+  // turns it off only for an already-final text, which then publishes
+  // verbatim (manual_override: true on the backend, same exact-passthrough
+  // path as a WordPress import).
   aiRewrite: boolean;
 };
 
@@ -20,7 +21,7 @@ export const EMPTY_MANUAL_NEWS_DRAFT: ManualNewsDraft = {
   body: "",
   image: "",
   category: "",
-  aiRewrite: false,
+  aiRewrite: true,
 };
 
 export const MANUAL_NEWS_SOURCE = "Redacción HolaSalta";

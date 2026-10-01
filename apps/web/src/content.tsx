@@ -406,7 +406,7 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
               <input type="checkbox" checked={draft.aiRewrite} onChange={(event) => update("aiRewrite", event.target.checked)} />
               Dejar que la IA repase y reescriba el texto antes de publicar
             </label>
-            {!draft.aiRewrite && <p className="card-intro">Por defecto se publica exactamente lo que escribiste arriba, sin pasar por el reescritor editorial.</p>}
+            {!draft.aiRewrite && <p className="card-intro">Se va a publicar exactamente lo que escribiste arriba, sin pasar por el reescritor editorial.</p>}
             <div className="manual-meta-grid">
               <Field label="Categoría" hint="Si no elegís una, el pipeline la clasifica según el título y el contenido.">
                 <select value={draft.category} onChange={(event) => update("category", event.target.value)}>

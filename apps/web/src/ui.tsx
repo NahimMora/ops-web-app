@@ -1,6 +1,7 @@
 /* eslint-disable react-refresh/only-export-components */
 import { useState, type SyntheticEvent } from "react";
 import type { CommandRecord, CommandType } from "../../../packages/contracts/src/index";
+import { applyEdit, editorValues, type ArticleEdit } from "./prepared-drafts";
 
 export type RunCommand = (
   type: CommandType,
@@ -487,14 +488,16 @@ export function ArticleList({
   onToggle,
   view,
   editable = false,
-  onChange,
+  editAt,
+  onEdit,
 }: {
   items: Array<{ index: number; item: ContentItem }>;
   selected: number[];
   onToggle(index: number): void;
   view: ViewMode;
   editable?: boolean;
-  onChange?: (index: number, item: ContentItem) => void;
+  editAt?: (index: number) => ArticleEdit | undefined;
+  onEdit?: (index: number, patch: ArticleEdit) => void;
 }) {
   if (!items.length) return <Empty text="No hay artículos para mostrar" detail="Ejecutá la etapa anterior para obtener resultados." />;
   return (
@@ -503,6 +506,8 @@ export function ArticleList({
         const checked = selected.includes(index);
         const image = articleImage(item);
         const body = articleBody(item);
+        const values = editorValues(item, editAt?.(index));
+        const titleLocked = Boolean(item.titulo_bloqueado || applyEdit(item, editAt?.(index)).titulo_bloqueado);
         const stopToggle = (event: SyntheticEvent) => event.stopPropagation();
         return (
           <article
@@ -526,9 +531,11 @@ export function ArticleList({
               <div className="article-meta"><span>{sourceLabel(item.source)}</span><time>{articleAge(item)}</time></div>
               {editable ? (
                 <>
-                  <input className="article-title-input" value={articleTitle(item)} onClick={stopToggle} onChange={(event) => onChange?.(index, { ...item, titulo: event.target.value, manual_override: true })} />
-                  <label className="article-editor-field" onClick={stopToggle}><span>Extracto</span><textarea value={articleExcerpt(item)} rows={3} onChange={(event) => onChange?.(index, { ...item, extracto: event.target.value, manual_override: true })} /></label>
-                  <label className="article-editor-field" onClick={stopToggle}><span>Contenido completo</span><textarea className="article-content-input" value={body} rows={10} onChange={(event) => onChange?.(index, { ...item, parrafos: splitParagraphs(event.target.value), manual_override: true })} /></label>
+                  <input className="article-title-input" value={values.title} onClick={stopToggle} onChange={(event) => onEdit?.(index, { title: event.target.value })} />
+                  {titleLocked && <small className="article-editor-hint">Título corregido a mano: se publica tal cual, la IA no lo cambia.</small>}
+                  <label className="article-editor-field" onClick={stopToggle}><span>Extracto</span><textarea value={values.excerpt} rows={3} onChange={(event) => onEdit?.(index, { excerpt: event.target.value })} /></label>
+                  <label className="article-editor-field" onClick={stopToggle}><span>Contenido completo</span><textarea className="article-content-input" value={values.body} rows={10} onChange={(event) => onEdit?.(index, { body: event.target.value })} /></label>
+                  <label className="switch-row" onClick={stopToggle}><input type="checkbox" checked={values.skipAi} onChange={(event) => onEdit?.(index, { skipAi: event.target.checked })} />Publicar sin pasar por la IA (texto final)</label>
                 </>
               ) : (
                 <>
@@ -543,10 +550,6 @@ export function ArticleList({
       })}
     </div>
   );
-}
-
-function splitParagraphs(value: string) {
-  return value.split(/\n\s*\n|\r?\n/).map((paragraph) => paragraph.trim()).filter(Boolean);
 }
 
 export function PlatformChooser({ selected, onChange, allowed }: { selected: string[]; onChange(next: string[]): void; allowed?: string[] }) {

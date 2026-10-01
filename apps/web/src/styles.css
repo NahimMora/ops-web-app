@@ -277,6 +277,7 @@ tr.clickable:hover { background: var(--pink-soft); }
 .article-title-input { padding: 8px 9px; color: white; font-size: 12px; font-weight: 800; }
 .article-copy textarea { min-height: 78px; padding: 8px 9px; font-size: 10px; line-height: 1.45; }
 .article-editor-field { display: grid; gap: 5px; color: #bdb1c2; font-size: 9px; font-weight: 750; }
+.article-editor-hint { color: #f0c36a; font-size: 9px; font-weight: 700; }
 .article-content-input { height: 190px !important; min-height: 190px !important; max-height: 190px !important; overflow-y: auto; resize: none; }
 .article-list.view-compact { display: grid; gap: 7px; }
 .article-list.view-compact article { display: grid; grid-template-columns: 114px minmax(0, 1fr); min-height: 105px; }

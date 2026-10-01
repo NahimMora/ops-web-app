@@ -9,6 +9,7 @@ import {
   validateManualNewsDraft,
   type ManualNewsDraft,
 } from "./manual-news";
+import { usePreparedDrafts } from "./prepared-drafts";
 import {
   ArticleList,
   Card,
@@ -88,7 +89,9 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
     return titles.map((item, index) => ({ item, index })).filter(({ item }) => !term || `${articleTitle(item)} ${articleExcerpt(item)} ${sourceLabel(item.source)}`.toLocaleLowerCase("es").includes(term));
   }, [search, titles]);
   const processedRows = useMemo(() => processed.map((item, index) => ({ item, index })), [processed]);
-  const selectedItems = selectedProcessed.map((index) => processed[index]).filter(Boolean);
+  const processedDrafts = usePreparedDrafts(processed);
+  const selectedItems = selectedProcessed.map((index) => processedDrafts.items[index]).filter(Boolean);
+  const { clearAll: clearProcessedEdits } = processedDrafts;
   const groups = normalizeGroups(snapshots["whatsapp.groups"]?.payload);
   const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
 
@@ -101,8 +104,9 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
     const items = extractArticles(detailCommand.result);
     hydratedDetails.current = detailCommand.id;
     setProcessed(items);
+    clearProcessedEdits();
     setSelectedProcessed(items.map((_, index) => index));
-  }, [detailCommand]);
+  }, [clearProcessedEdits, detailCommand]);
 
   useEffect(() => {
     if (!publishCommand || publishCommand.id === finishedPublication.current || !isTerminalSuccess(publishCommand)) return;
@@ -246,7 +250,8 @@ export function Scrapers({ commands, snapshots, run }: ContentProps) {
           onToggle={(index) => setSelectedProcessed((current) => toggleIndex(current, index))}
           view={view}
           editable
-          onChange={(index, item) => setProcessed((current) => current.map((existing, currentIndex) => currentIndex === index ? item : existing))}
+          editAt={processedDrafts.editAt}
+          onEdit={processedDrafts.edit}
         />
         {detailCommand?.result && <TechnicalDetails value={detailCommand.result} label="Ver respuesta técnica del procesamiento" />}
 
@@ -476,8 +481,9 @@ export function ManualNews({ commands, snapshots, run }: ContentProps) {
 
 export function Prepared({ commands, snapshots, run }: ContentProps) {
   const snapshot = snapshots["news.current"];
-  const [draft, setDraft] = useState<ContentItem[]>([]);
-  const [selected, setSelected] = useState<number[]>([]);
+  const baseItems = useMemo(() => normalizeItems(snapshot?.payload), [snapshot?.payload]);
+  const drafts = usePreparedDrafts(baseItems);
+  const { items: draft, selected, setSelected } = drafts;
   const [source, setSource] = useState("all");
   const [search, setSearch] = useState("");
   const [onlyImages, setOnlyImages] = useState(false);
@@ -488,15 +494,7 @@ export function Prepared({ commands, snapshots, run }: ContentProps) {
   const [reviewOpen, setReviewOpen] = useState(false);
   const [publishCommandId, setPublishCommandId] = useState("");
   const [operationCommandId, setOperationCommandId] = useState("");
-  const initialized = useRef("");
-
-  useEffect(() => {
-    const hash = String(snapshot?.contentHash ?? "");
-    if (!hash || initialized.current === hash) return;
-    initialized.current = hash;
-    setDraft(normalizeItems(snapshot?.payload));
-    setSelected([]);
-  }, [snapshot?.contentHash, snapshot?.payload]);
+  const [savedEdits, setSavedEdits] = useState<{ commandId: string; edits: typeof drafts.edits } | null>(null);
 
   useEffect(() => {
     localStorage.setItem("ops:prepared:view", view);
@@ -516,10 +514,29 @@ export function Prepared({ commands, snapshots, run }: ContentProps) {
   const selectedGroups = resolveSelectedGroups(groups, selectedGroupIds, selectedGroupSet);
   const publishCommand = commands.find((command) => command.id === publishCommandId);
   const operationCommand = commands.find((command) => command.id === operationCommandId);
+  const { clearSaved } = drafts;
+
+  // Once "Guardar cambios" lands, the refreshed snapshot already carries
+  // those edits: drop them from the overlay (keeping any typed since).
+  useEffect(() => {
+    if (!savedEdits || !operationCommand || operationCommand.id !== savedEdits.commandId || !isTerminalSuccess(operationCommand)) return;
+    clearSaved(savedEdits.edits);
+    setSavedEdits(null);
+  }, [clearSaved, operationCommand, savedEdits]);
 
   async function runOperation(type: "news.save" | "news.clear_cache" | "publish.clear", payload: Record<string, unknown>, notice: string) {
     const command = await run(type, payload, notice);
     if (command) setOperationCommandId(command.id);
+  }
+
+  async function saveChanges() {
+    // Built from the latest snapshot plus the edit overlay, so notes a
+    // scraper added since the page loaded are saved too, not dropped.
+    const edits = drafts.edits;
+    const command = await run("news.save", { items: draft }, "Guardado de cambios iniciado");
+    if (!command) return;
+    setOperationCommandId(command.id);
+    setSavedEdits({ commandId: command.id, edits });
   }
 
   async function handlePublish() {
@@ -541,7 +558,7 @@ export function Prepared({ commands, snapshots, run }: ContentProps) {
       <Card title="Preparadas" eyebrow="Todas las fuentes" actions={<ViewToggle value={view} onChange={setView} />}>
         <p className="card-intro">Acá se junta todo lo que la PC ya descargó desde Scrapers, sin importar la fuente. Editá lo que haga falta y publicá; cuando termines, vaciá para dejar el estado limpio para la próxima tanda.</p>
         <div className="news-actions">
-          <button disabled={isActive(operationCommand)} onClick={() => void runOperation("news.save", { items: draft }, "Guardado de cambios iniciado")}>Guardar cambios</button>
+          <button disabled={isActive(operationCommand) || !drafts.dirtyCount} onClick={() => void saveChanges()}>{drafts.dirtyCount ? `Guardar cambios (${drafts.dirtyCount})` : "Sin cambios"}</button>
           <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Vaciar todas las noticias preparadas? Esta acción no se puede deshacer.") && void runOperation("news.clear_cache", {}, "Vaciado de preparadas iniciado")}>Vaciar preparadas</button>
           <button disabled={isActive(operationCommand)} className="danger-ghost" onClick={() => confirmed("¿Limpiar el historial finalizado de publicaciones?") && void runOperation("publish.clear", {}, "Limpieza de historial iniciada")}>Limpiar historial</button>
         </div>
@@ -563,10 +580,11 @@ export function Prepared({ commands, snapshots, run }: ContentProps) {
         <ArticleList
           items={visible}
           selected={selected}
-          onToggle={(index) => setSelected((current) => toggleIndex(current, index))}
+          onToggle={(index) => setSelected(toggleIndex(selected, index))}
           view={view}
           editable
-          onChange={(index, item) => setDraft((current) => current.map((existing, currentIndex) => currentIndex === index ? item : existing))}
+          editAt={drafts.editAt}
+          onEdit={drafts.edit}
         />
         {!draft.length && <Empty text="Todavía no hay noticias preparadas" detail="Andá a Scrapers, buscá titulares y preparalos: van a aparecer acá apenas la PC termine de procesarlos." />}
       </Card>

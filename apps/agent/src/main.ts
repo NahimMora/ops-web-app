@@ -33,7 +33,14 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 const LOCAL_HEALTHY_STATUSES = new Set(["healthy", "running", "stopped", "needs_auth"]);
 async function localHealth(): Promise<"healthy" | "degraded" | "offline"> { try { const result = await local.get("/health", 5000); return LOCAL_HEALTHY_STATUSES.has(String(result?.status ?? "")) ? "healthy" : "degraded"; } catch { return "offline"; } }
 async function heartbeatLoop() { while (!stopping) { try { await ops.heartbeat(await localHealth(), capabilities, { active: activeCount > 0, activeCount }); } catch (error) { console.error(`[agent] heartbeat failed: ${safeError(error)}`); } await delay(agentConfig.heartbeatMs); } }
-async function snapshotLoop() { while (!stopping) { try { if (activeCount === 0 && (await localHealth()) !== "offline") await syncSnapshots(local, ops); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(activeCount > 0 ? 10_000 : 20_000); } }
+// While a command runs, the full snapshot sync is skipped to keep load off
+// the backend - but Instagram pending posts must still reach the panel right
+// away: a rate limit mid-way through a big news.publish leaves the rest of
+// the posts there for manual retry, and waiting for the whole job to finish
+// before showing them is exactly what the operator can't afford
+// (HS-BUG-0005). The endpoint just reads a small local JSON file.
+const BUSY_SNAPSHOT_KEYS = ["instagram.pending"];
+async function snapshotLoop() { while (!stopping) { try { if ((await localHealth()) !== "offline") await syncSnapshots(local, ops, activeCount === 0 ? undefined : BUSY_SNAPSHOT_KEYS); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(activeCount > 0 ? 10_000 : 20_000); } }
 
 async function processLoop(workerId: number) {
   while (!stopping) {

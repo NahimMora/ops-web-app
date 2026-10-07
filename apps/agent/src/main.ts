@@ -5,6 +5,19 @@ import { LocalApi, LocalApiError } from "./local-api.js";
 import { OpsClient } from "./ops-client.js";
 import { syncSnapshots } from "./snapshots.js";
 
+// Prefix every stdout/stderr line with a local timestamp in the same format
+// supervisor.log uses (2026-10-07T13:07:51-03:00), so agent errors (Hostinger
+// 504s, lease losses) can be lined up against supervisor/backend incidents.
+function localTimestamp(date = new Date()): string {
+  const pad = (n: number) => String(Math.trunc(Math.abs(n))).padStart(2, "0");
+  const offset = -date.getTimezoneOffset();
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}${offset >= 0 ? "+" : "-"}${pad(offset / 60)}:${pad(offset % 60)}`;
+}
+for (const method of ["log", "error", "warn"] as const) {
+  const original = console[method].bind(console);
+  console[method] = (...args: unknown[]) => original(localTimestamp(), ...args);
+}
+
 const local = new LocalApi(); const ops = new OpsClient(); let stopping = false;
 // Multiple processLoop() instances run concurrently (see bottom of file), so
 // "is the agent busy" can no longer be a single boolean — one loop finishing

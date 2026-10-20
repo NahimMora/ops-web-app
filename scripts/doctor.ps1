@@ -20,6 +20,7 @@ Add-Check "Instancia backend" ($backendRoots.Count -le 1) ("Raices Uvicorn: " + 
 try { $r = Invoke-WebRequest -UseBasicParsing -Uri "http://127.0.0.1:8000/health" -TimeoutSec 5; Add-Check "Backend local" ($r.StatusCode -eq 200) "127.0.0.1:8000" } catch { Add-Check "Backend local" $false "Sin respuesta" }
 try { $r = Invoke-WebRequest -UseBasicParsing -Uri "https://ops.holasalta.com/health" -TimeoutSec 10; Add-Check "Ops Hostinger" ($r.StatusCode -eq 200) "HTTPS" } catch { Add-Check "Ops Hostinger" $false "Sin respuesta o aun no desplegado" }
 try { $task = Get-ScheduledTask -TaskName "HolaSalta Ops Local Agent" -ErrorAction Stop; Add-Check "Tarea Windows" ($task.State -ne "Disabled") ([string]$task.State) } catch { Add-Check "Tarea Windows" $false "No instalada" }
+try { $monitorTask = Get-ScheduledTask -TaskName "HolaSalta Ops Health Monitor" -ErrorAction Stop; Add-Check "Monitor de salud (mails)" ($monitorTask.State -eq "Running") ([string]$monitorTask.State) } catch { Add-Check "Monitor de salud (mails)" $false "No instalado (scripts\install-monitor-task.ps1)" }
 
 $checks | Format-Table -AutoSize
 if ($checks.Estado -contains "ERROR") { exit 1 }

@@ -66,6 +66,21 @@ aparece en ningún path de URL que el access log de Fastify ya capture.
   y mantiene vivo el agente (`dist/agent/main.js`). No instalar un segundo
   supervisor de otro lado — si esta tarea ya corre en la máquina, es la
   única fuente de verdad de "quién levanta qué".
+- `monitor.ps1` / `install-monitor-task.ps1`: monitor de salud, tarea de
+  Windows **"HolaSalta Ops Health Monitor"** (AtLogOn, separada del
+  supervisor a propósito: tiene que poder avisar si el supervisor mismo se
+  cae). Cada 5 min corre `dist/monitor/main.js` (`apps/monitor/src`), que
+  chequea backend/runtime WA-X/agente/supervisor/panel/disco, lee jobs y
+  eventos nuevos del backend (`backend/data/automation_*.json`) y las líneas
+  nuevas de `supervisor.log`, y manda por Gmail: alerta cuando algo se cae
+  (tras 2 chequeos seguidos) o falla, "VIENE FALLANDO" si el mismo error se
+  repite 3+ veces en 24h (cada error se re-mailea como mucho cada 6h), y un
+  reporte de salud completo cada 72h. Credenciales en `.secrets/agent.env`
+  (`OPS_ALERT_SMTP_USER`/`OPS_ALERT_SMTP_PASSWORD`/`OPS_ALERT_EMAIL_TO`,
+  contraseña de aplicación de Gmail). Estado en
+  `agent-state/monitor-state.json`, log en `agent-state/monitor.log`.
+  `node dist/monitor/main.js --test-email | --report-now | --dry-run` para
+  probar a mano (con `OPS_AGENT_CONFIG_PATH` apuntando a `.secrets\agent.env`).
 - `doctor.ps1`: diagnóstico de una pasada — Node, build, config, backend
   local, conexión a Hostinger, estado de la tarea. Correrlo con
   `-ExecutionPolicy Bypass` si la sesión no tiene la política seteada.

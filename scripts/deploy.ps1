@@ -95,6 +95,17 @@ if ($backendChanged -match "backend/requirements\.txt") {
   }
 }
 
+# Tells the health monitor (apps/monitor) that the restarts below are on
+# purpose, so "backend/agente levantado" right after isn't mailed as a failure.
+if ($backendChanged -or $opsChanged) {
+  try {
+    $line = "{0} Reinicio planificado (deploy.ps1): backend={1} agente={2}" -f (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"), [bool]$backendChanged, [bool]$opsChanged
+    Add-Content -LiteralPath (Join-Path $OpsRoot "agent-state\supervisor.log") -Value $line -Encoding UTF8
+  } catch {
+    Write-Host "  (no se pudo anotar el reinicio en supervisor.log: $($_.Exception.Message))" -ForegroundColor DarkGray
+  }
+}
+
 if ($backendChanged) {
   Section "Reiniciando backend"
   Stop-MatchingProcess -CommandLinePattern "*uvicorn main:app*" -Label "backend"

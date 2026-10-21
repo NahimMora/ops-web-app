@@ -57,6 +57,20 @@ describe("health monitor rules", () => {
     expect(r3.alert?.text).toContain("VIENE FALLANDO: 4 veces en 24h");
   });
 
+  it("does not mail the reboot recovery sequence, even when it spans two runs", () => {
+    const sup = (ts: string, kind: "supervisor_started" | "backend_started" | "baileys_recovery") => ({ ts, kind, text: kind });
+    const unreachable = (ts: string) => ({ id: ts, ts, source: "whatsapp_worker", level: "error", message: "whatsapp baileys service unreachable" });
+    const boot = pass(emptyState(), healthy(), 0, { newSupervisorLines: [sup("2026-10-20T11:59:12Z", "supervisor_started"), sup("2026-10-20T11:59:15Z", "backend_started"), sup("2026-10-20T11:59:17Z", "baileys_recovery")] });
+    expect(boot.alert).toBeNull();
+    const next = pass(boot.state, healthy(), 5, { newEvents: ["12:00:33", "12:00:37", "12:00:41", "12:00:45"].map((t) => unreachable(`2026-10-20T${t}Z`)) });
+    expect(next.alert).toBeNull();
+    expect(next.state.failures).toHaveLength(0);
+    // Outside the grace window the same event is a real problem again.
+    expect(pass(next.state, healthy(), 60, { newEvents: [unreachable("2026-10-20T13:00:00Z")] }).alert?.text).toContain("baileys service unreachable");
+    // A backend that died on its own (no reboot) still pages.
+    expect(pass(emptyState(), healthy(), 0, { newSupervisorLines: [sup("2026-10-20T11:59:15Z", "backend_started")] }).alert?.text).toContain("estaba caido");
+  });
+
   it("records history on the baseline pass without mailing it", () => {
     const result = pass(emptyState(), healthy(), 0, { newJobs: [xRateLimited("a", "2026-10-20T11:00:00Z")], baseline: true });
     expect(result.alert).toBeNull();
@@ -89,6 +103,7 @@ describe("health monitor parsing", () => {
   it("classifies supervisor log lines", () => {
     expect(parseSupervisorLine("2026-10-20T18:16:46-03:00 Backend local colgado desde hace 181s (proceso vivo, /health no responde); forzando reinicio.")).toMatchObject({ kind: "backend_hung_restart", ts: "2026-10-20T21:16:46.000Z" });
     expect(parseSupervisorLine("2026-10-20T18:16:46-03:00 Agente no disponible; iniciando.")?.kind).toBe("agent_started");
+    expect(parseSupervisorLine("2026-10-20T18:16:46-03:00 Reinicio planificado (deploy.ps1): backend=True agente=False")?.kind).toBe("planned_restart");
     expect(parseSupervisorLine("garbage")).toBeNull();
   });
 

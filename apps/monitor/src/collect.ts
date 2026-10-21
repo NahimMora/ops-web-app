@@ -128,6 +128,7 @@ export function enrichJobsFromEvents(jobs: JobRecord[], events: BackendEvent[]):
 
 const SUPERVISOR_PATTERNS: [RegExp, SupervisorKind][] = [
   [/^Supervisor iniciado/, "supervisor_started"],
+  [/^Reinicio planificado/, "planned_restart"],
   [/colgado.*forzando reinicio/, "backend_hung_restart"],
   [/Backend local no disponible y sin proceso/, "backend_started"],
   [/Backend local sin respuesta/, "backend_unresponsive"],

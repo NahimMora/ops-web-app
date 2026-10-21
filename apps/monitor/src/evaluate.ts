@@ -20,7 +20,7 @@ export interface JobRecord {
   id: string; type: string; status: string; createdAt: string; finishedAt: string;
   errorCode?: string; errorMessage?: string; title?: string; platforms: Record<string, PlatformOutcome>;
 }
-export type SupervisorKind = "supervisor_started" | "backend_started" | "backend_hung_restart" | "backend_unresponsive" | "agent_started" | "baileys_recovery" | "supervisor_error" | "other";
+export type SupervisorKind = "supervisor_started" | "planned_restart" | "backend_started" | "backend_hung_restart" | "backend_unresponsive" | "agent_started" | "baileys_recovery" | "supervisor_error" | "other";
 export interface SupervisorLine { ts: string; kind: SupervisorKind; text: string }
 export interface Failure { ts: string; signature: string; text: string; category: string }
 
@@ -55,6 +55,21 @@ const suppressionMs = (signature: string) => (signature.startsWith("sup:") ? HOU
 // neither should send a "service down" mail.
 const REQUIRED_CONSECUTIVE: Record<string, number> = { backend: 2, agent: 2, panel: 3, supervisor: 1, disk: 1 };
 const requiredFor = (key: string) => REQUIRED_CONSECUTIVE[key] ?? 2;
+// After a PC reboot (supervisor task starts again) or a deploy.ps1 restart,
+// the supervisor brings backend/agent/Baileys back up in sequence, and the
+// backend's WhatsApp worker logs "baileys service unreachable" every ~4s until
+// Baileys finishes starting (observed 2026-10-20: 9 times in 36s). That's the
+// recovery working, not a failure - so within this window those lines are
+// kept out of mails and recurrence counts. If something really doesn't come
+// back, the service conditions above still page after 2 checks.
+const STARTUP_GRACE_MS = 10 * 60_000;
+const STARTUP_ANCHORS = new Set<SupervisorKind>(["supervisor_started", "planned_restart"]);
+const STARTUP_NOISE = /^sup:(backend_started|agent_started|baileys_recovery)$|^event:whatsapp_worker:whatsapp baileys service unreachable$/;
+function isStartupNoise(failure: Failure, supervisor: MonitorState["supervisor"]): boolean {
+  if (!STARTUP_NOISE.test(failure.signature)) return false;
+  const at = Date.parse(failure.ts);
+  return supervisor.some((s) => STARTUP_ANCHORS.has(s.kind) && at >= Date.parse(s.ts) && at - Date.parse(s.ts) <= STARTUP_GRACE_MS);
+}
 
 const PLATFORM_LABEL: Record<string, string> = { whatsapp: "WhatsApp", x: "X", web: "Web (WordPress)", instagram: "Instagram", facebook: "Facebook", whatsapp_test: "WhatsApp (grupo de prueba)" };
 const JOB_LABEL: Record<string, string> = { news_publish: "Publicacion de noticias", x_video_publish: "Publicacion de video", x_video_batch: "Lote de videos", x_video_process: "Descarga y render de video" };
@@ -160,17 +175,18 @@ export function evaluate(input: EvaluateInput): { state: MonitorState; alert: Ma
 
   // --- failures -----------------------------------------------------------
   const knownJobIds = new Set([...Object.keys(state.jobs), ...input.newJobs.map((j) => j.id)]);
-  const fresh: Failure[] = [];
-  for (const job of input.newJobs) { state.jobs[job.id] = job; const f = jobFailure(job); if (f) fresh.push(f); }
+  // Supervisor history goes in first: a reboot's "Supervisor iniciado" and the
+  // events it causes can land in the same run or in consecutive ones.
+  for (const line of input.newSupervisorLines) state.supervisor.push({ ts: line.ts, kind: line.kind });
+  const candidates: Failure[] = [];
+  for (const job of input.newJobs) { state.jobs[job.id] = job; const f = jobFailure(job); if (f) candidates.push(f); }
   for (const event of input.newEvents) {
     // A failed job already produces its own (richer) failure entry above.
     if (event.jobId && knownJobIds.has(event.jobId) && event.level === "error" && event.message.startsWith("job failed")) continue;
-    const f = eventFailure(event); if (f) fresh.push(f);
+    const f = eventFailure(event); if (f) candidates.push(f);
   }
-  for (const line of input.newSupervisorLines) {
-    state.supervisor.push({ ts: line.ts, kind: line.kind });
-    const f = supervisorFailure(line); if (f) fresh.push(f);
-  }
+  for (const line of input.newSupervisorLines) { const f = supervisorFailure(line); if (f) candidates.push(f); }
+  const fresh = candidates.filter((f) => !isStartupNoise(f, state.supervisor));
   state.failures.push(...fresh);
 
   const failureLines: string[] = [];
@@ -245,6 +261,7 @@ export function buildReport(state: MonitorState, snap: Snapshot, since: Date, no
   out(`  Backend lento (no respondio /health a tiempo): ${supCount("backend_unresponsive")}`);
   out(`  Agente relanzado:                  ${supCount("agent_started")}`);
   out(`  Supervisor reiniciado:             ${supCount("supervisor_started")}`);
+  if (supCount("planned_restart")) out(`  Reinicios por deploy:              ${supCount("planned_restart")}`);
   if (supCount("baileys_recovery")) out(`  Recuperaciones de Baileys:         ${supCount("baileys_recovery")}`);
 
   const jobs = Object.values(state.jobs).filter((j) => inWindow(j.finishedAt));

@@ -53,6 +53,31 @@ describe("HTTP API", () => {
     expect(responses.map((response) => response.statusCode).sort()).toEqual([200, 204]);
   });
 
+  it("hands the same command back when a claim is retried with the same lease token", async () => {
+    const { repository, rawAgentToken } = await fixture();
+    await repository.createCommand({ id: "lost-response", type: "scraper.titles", payload: { source: "tn", maxArticles: 1 }, payloadHash: "hash", idempotencyKey: "lost-key", priority: 0, requiredCapability: "scraping", resourceKey: null, createdBy: "bootstrap-admin", maxAttempts: 3 });
+    const leaseToken = "agent-chosen-lease-token-0123456789-abcdef";
+    const request = { method: "POST" as const, url: "/api/agent/commands/claim", headers: { authorization: `Bearer ${rawAgentToken}`, "x-ops-agent-id": "pc-holasalta-01" }, payload: { capabilities: ["scraping"], leaseToken } };
+    const first = await app!.inject(request);
+    const retry = await app!.inject(request);
+    expect(first.headers["x-ops-claim-idempotent"]).toBe("1");
+    expect(retry.statusCode).toBe(200);
+    expect(retry.json().command.id).toBe("lost-response");
+    expect(retry.json().leaseToken).toBe(leaseToken);
+    expect(retry.json().leaseSeconds).toBe(180);
+    expect((await repository.getCommand("lost-response"))?.attemptCount).toBe(1);
+    const other = await app!.inject({ ...request, payload: { capabilities: ["scraping"], leaseToken: "a-different-agent-lease-token-0123456789" } });
+    expect(other.statusCode).toBe(204);
+  });
+
+  it("answers 503 instead of 500 when the database connection fails transiently", async () => {
+    const { repository, rawAgentToken } = await fixture();
+    repository.claimCommand = async () => { throw Object.assign(new Error("connect EPERM 127.0.0.1:3306"), { code: "EPERM" }); };
+    const response = await app!.inject({ method: "POST", url: "/api/agent/commands/claim", headers: { authorization: `Bearer ${rawAgentToken}`, "x-ops-agent-id": "pc-holasalta-01" }, payload: { capabilities: ["scraping"] } });
+    expect(response.statusCode).toBe(503);
+    expect(response.json().error).toBe("DATABASE_UNAVAILABLE");
+  });
+
   it("wakes a long-poll claim as soon as a command is created, instead of waiting out waitMs", async () => {
     const { rawAgentToken, password } = await fixture();
     const login = await app!.inject({ method: "POST", url: "/api/auth/login", payload: { email: "holasalta@acceso.com", password } });

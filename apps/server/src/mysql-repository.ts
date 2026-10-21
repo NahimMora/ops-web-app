@@ -13,7 +13,7 @@ const iso = (value: unknown): string | null => value ? new Date(String(value).re
 export class MySqlRepository implements Repository {
   readonly pool: Pool;
   constructor(db: DbConfig, private readonly autoMigrate = true) {
-    this.pool = mysql.createPool({ ...db, connectTimeout: 5_000, connectionLimit: 8, waitForConnections: true, queueLimit: 50, enableKeepAlive: true, timezone: "Z", dateStrings: true, charset: "utf8mb4" });
+    this.pool = mysql.createPool({ ...db, connectTimeout: 5_000, connectionLimit: 4, waitForConnections: true, queueLimit: 50, enableKeepAlive: true, timezone: "Z", dateStrings: true, charset: "utf8mb4" });
   }
   async initialize(bootstrap: BootstrapInput): Promise<void> {
     if (this.autoMigrate) await runMigrations(this.pool);
@@ -146,6 +146,10 @@ export class MySqlRepository implements Repository {
       const [claimed] = await connection.query<DbRow[]>("SELECT * FROM commands WHERE id=?", [row.id]);
       await connection.commit(); return mapCommand(claimed[0]!);
     } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+  }
+  async findClaimedByLease(agentId: string, leaseHash: string) {
+    const [rows] = await this.pool.query<DbRow[]>("SELECT * FROM commands WHERE status='claimed' AND assigned_agent_id=? AND lease_token_hash=? AND lease_expires_at>UTC_TIMESTAMP(3) LIMIT 1", [agentId, leaseHash]);
+    return rows[0] ? mapCommand(rows[0]) : null;
   }
   async startCommand(id: string, leaseHash: string, localJobId?: string) {
     await this.pool.query("UPDATE commands SET status='running',current_stage='running',local_job_id=COALESCE(?,local_job_id),updated_at=UTC_TIMESTAMP(3) WHERE id=? AND status='claimed' AND lease_token_hash=? AND lease_expires_at>UTC_TIMESTAMP(3)", [localJobId ?? null, id, leaseHash]);

@@ -98,8 +98,27 @@ function waitForCommandAvailable(ms: number): Promise<void> {
   });
 }
 
+// How long a claimed/running command stays owned without a heartbeat. The
+// agent beats every 20s, but one beat (with its retries) can take over a
+// minute when Hostinger is slow, and a 60s lease turned those slow patches
+// into LEASE_LOST_OR_INVALID_STATE on commands that were still running fine
+// (HS-INCIDENT-0003).
+const LEASE_MS = 180_000;
+const leaseExpiry = () => new Date(Date.now() + LEASE_MS).toISOString();
+// MySQL connection failures on shared hosting are transient (observed:
+// "connect EPERM 127.0.0.1:3306"); answer 503 so the agent's retry logic
+// treats them as such instead of a hard 500.
+const TRANSIENT_DB_CODES = new Set(["EPERM", "ECONNREFUSED", "ECONNRESET", "ETIMEDOUT", "PROTOCOL_CONNECTION_LOST", "ER_CON_COUNT_ERROR", "ER_USER_LIMIT_REACHED", "POOL_ENQUEUELIMIT"]);
+
 export async function createApp(repository: Repository) {
   const app = Fastify({ logger: { level: config.logLevel, redact: ["req.headers.authorization", "req.headers.cookie", "body.password", "body.leaseToken", "body.dataUrl"] }, bodyLimit: 5 * 1024 * 1024, trustProxy: true, requestIdHeader: "x-request-id", genReqId: () => randomUUID() });
+  app.setErrorHandler((error: Error & { code?: string }, req, reply) => {
+    if (error.code && TRANSIENT_DB_CODES.has(error.code)) {
+      req.log.warn({ code: error.code, err: error.message }, "transient database error");
+      return reply.code(503).header("retry-after", "2").send({ error: "DATABASE_UNAVAILABLE", code: error.code });
+    }
+    throw error;
+  });
   await app.register(cookie);
   await app.register(rateLimit, { global: false, max: 100, timeWindow: "1 minute" });
   await app.register(helmet, {
@@ -370,22 +389,31 @@ export async function createApp(repository: Repository) {
   app.post("/api/agent/heartbeat", async (req, rep) => { const agent = await requireAgent(req, rep, repository); if (!agent) return; const body = agentHeartbeatSchema.safeParse(req.body); if (!body.success || body.data.agentId !== agent.id) return rep.code(400).send({ error: "INVALID_HEARTBEAT" }); const updated = await repository.heartbeatAgent(agent.id, body.data.version, body.data.capabilities, body.data.localHealth); rep.send({ ok: true, agent: updated && { ...updated, tokenHash: undefined }, serverTime: new Date().toISOString() }); });
   app.post("/api/agent/commands/claim", async (req, rep) => {
     const agent = await requireAgent(req, rep, repository); if (!agent) return;
-    const body = z.object({ capabilities: z.array(z.string().min(1).max(100)).max(100), waitMs: z.coerce.number().int().min(0).max(25_000).default(0) }).safeParse(req.body);
+    const body = z.object({ capabilities: z.array(z.string().min(1).max(100)).max(100), waitMs: z.coerce.number().int().min(0).max(25_000).default(0), leaseToken: z.string().min(32).max(128).optional() }).safeParse(req.body);
     if (!body.success) return rep.code(400).send({ error: "INVALID_REQUEST" });
-    const leaseToken = randomToken(); const leaseHash = tokenHash(leaseToken, config.tokenPepper);
+    // Idempotent claim: the agent picks the lease token and reuses it until it
+    // actually receives an answer. If a previous attempt claimed a command but
+    // its response was lost (504/timeout), the retry gets that same command
+    // back instead of leaving it orphaned until its lease expires.
+    rep.header("x-ops-claim-idempotent", "1");
+    const leaseToken = body.data.leaseToken ?? randomToken(); const leaseHash = tokenHash(leaseToken, config.tokenPepper);
+    if (body.data.leaseToken) {
+      const replay = await repository.findClaimedByLease(agent.id, leaseHash);
+      if (replay) return rep.send({ command: publicCommand(replay), leaseToken, leaseSeconds: LEASE_MS / 1000 });
+    }
     const deadline = Date.now() + body.data.waitMs;
-    let command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, new Date(Date.now() + 60_000).toISOString());
+    let command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, leaseExpiry());
     // Long-poll: instead of replying 204 right away, hold the request open
     // (up to waitMs) and re-attempt the claim whenever notifyCommandAvailable()
     // wakes it, so a freshly queued command is picked up immediately instead
     // of waiting out the agent's next fixed polling tick.
     while (!command && Date.now() < deadline) {
       await waitForCommandAvailable(deadline - Date.now());
-      command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, new Date(Date.now() + 60_000).toISOString());
+      command = await repository.claimCommand(agent.id, body.data.capabilities, leaseHash, leaseExpiry());
     }
     if (!command) return rep.code(204).send();
     await repository.appendEvent(command.id, "claimed", "info", "Comando reclamado por el agente", { agentId: agent.id, attempt: command.attemptCount });
-    rep.send({ command: publicCommand(command), leaseToken, leaseSeconds: 60 });
+    rep.send({ command: publicCommand(command), leaseToken, leaseSeconds: LEASE_MS / 1000 });
   });
   app.post("/api/agent/commands/:id/start", (req, rep) => agentMutation(req, rep, repository, "start"));
   app.post("/api/agent/commands/:id/heartbeat", (req, rep) => agentMutation(req, rep, repository, "heartbeat"));
@@ -493,7 +521,7 @@ async function agentMutation(request: FastifyRequest, reply: FastifyReply, repos
   if (!id.success || !body.success) return reply.code(400).send({ error: "INVALID_UPDATE" });
   const leaseHash = tokenHash(body.data.leaseToken, config.tokenPepper); let command: CommandInternal | null = null;
   if (action === "start") command = await repository.startCommand(id.data.id, leaseHash, body.data.localJobId);
-  else if (action === "heartbeat") command = await repository.heartbeatCommand(id.data.id, leaseHash, new Date(Date.now() + 60_000).toISOString(), body.data);
+  else if (action === "heartbeat") command = await repository.heartbeatCommand(id.data.id, leaseHash, leaseExpiry(), body.data);
   else if (action === "side-effect") { const ok = await repository.markSideEffect(id.data.id, leaseHash); if (!ok) return reply.code(409).send({ error: "LEASE_LOST" }); command = await repository.getCommand(id.data.id); }
   else {
     const status: CommandStatus = action === "fail" ? (body.data.status && ["failed", "waiting_manual_retry", "requires_attention", "partial_success"].includes(body.data.status) ? body.data.status : "failed") : (body.data.status && ["completed", "partial_success", "completed_unverified"].includes(body.data.status) ? body.data.status : "completed");

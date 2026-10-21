@@ -19,7 +19,7 @@ for (const method of ["log", "error", "warn"] as const) {
 }
 
 const local = new LocalApi(); const ops = new OpsClient(); let stopping = false;
-// Multiple processLoop() instances run concurrently (see bottom of file), so
+// Up to `concurrency` commands run concurrently (see dispatchLoop), so
 // "is the agent busy" can no longer be a single boolean — one loop finishing
 // would wrongly clear it while another is still mid-command. A count of
 // currently-executing commands is the equivalent, race-free signal.
@@ -42,13 +42,22 @@ async function heartbeatLoop() { while (!stopping) { try { await ops.heartbeat(a
 const BUSY_SNAPSHOT_KEYS = ["instagram.pending"];
 async function snapshotLoop() { while (!stopping) { try { if ((await localHealth()) !== "offline") await syncSnapshots(local, ops, activeCount === 0 ? undefined : BUSY_SNAPSHOT_KEYS); } catch (error) { console.error(`[agent] snapshot sync failed: ${safeError(error)}`); } await delay(activeCount > 0 ? 10_000 : 20_000); } }
 
-async function processLoop(workerId: number) {
+// One claim long-poll for the whole agent, handing commands to up to
+// `concurrency` slots. Each of the old N loops kept its own request open on
+// Hostinger at all times (3 permanent long-polls on top of heartbeats and
+// snapshot syncs - HS-INCIDENT-0003); now only one is open, and only while a
+// slot is free. It is also what makes the reusable claim token in OpsClient
+// safe: there is never more than one claim in flight.
+const freeSlots = Array.from({ length: agentConfig.concurrency }, (_, index) => index + 1);
+let slotFreed: (() => void) | null = null;
+async function dispatchLoop() {
   while (!stopping) {
+    if (!freeSlots.length) { await new Promise<void>((resolve) => { slotFreed = resolve; }); continue; }
     let claim: Awaited<ReturnType<typeof ops.claim>>;
     try {
       claim = await ops.claim(capabilities, agentConfig.pollMs);
     } catch (error) {
-      console.error(`[agent#${workerId}] polling error: ${safeError(error)}`);
+      console.error(`[agent] polling error: ${safeError(error)}`);
       await delay(10_000);
       continue;
     }
@@ -61,47 +70,61 @@ async function processLoop(workerId: number) {
       await delay(250);
       continue;
     }
-    // Bracket the whole claimed-command region in try/finally so activeCount
-    // is decremented exactly once per increment no matter where a failure
-    // happens (e.g. ops.start() itself throwing) — a bare boolean tolerated
-    // being set unconditionally in two places; a shared counter across N
-    // concurrent loops does not.
+    const slot = freeSlots.sort((a, b) => a - b).shift()!;
+    // activeCount is bumped before runCommand's first await so the
+    // heartbeat/snapshot loops see the agent as busy right away.
     activeCount++;
-    try {
-      const { command, leaseToken } = claim; let stage = "starting"; let progress = 1; let localJobId: string | undefined; let sideEffect = false;
-      console.log(`[agent#${workerId}] claimed ${command.id} (${command.type})`); await ops.start(command.id, leaseToken);
-      const leaseTimer = setInterval(() => { void ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId).catch((error) => console.error(`[agent#${workerId}] lease heartbeat failed for ${command.id}: ${safeError(error)}`)); }, 20_000); leaseTimer.unref();
-      try {
-        const result = await executeCommand(command, local, {
-          progress: async (nextStage, nextProgress, nextLocalJobId) => { stage = nextStage; progress = nextProgress; localJobId = nextLocalJobId ?? localJobId; await ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId); },
-          sideEffect: async () => { if (!sideEffect) { await ops.sideEffect(command.id, leaseToken); sideEffect = true; } },
-          refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
-          getTemporaryMediaUpload: (id) => ops.temporaryMediaUpload(id),
-          completeTemporaryMediaUpload: (id, received, errorMessage) => ops.completeTemporaryMediaUpload(id, received, errorMessage),
-          // Reused as the end-to-end trace_id (see ExecutionContext.traceId
-          // in executors.ts) - command.id was already unique per job.
-          traceId: command.id,
-        });
-        const refreshKeys = snapshotKeysAfter(command.type);
-        if (refreshKeys.length) {
-          await syncSnapshots(local, ops, refreshKeys, async (key, current, total) => {
-            stage = `syncing:${key}`;
-            progress = Math.min(99, 92 + Math.round((current / total) * 7));
-            await ops.commandHeartbeat(command.id, leaseToken, stage, progress, result.localJobId ?? localJobId);
-          }, true);
-        }
-        await ops.complete(command.id, leaseToken, result.status, result.result, result.localJobId ?? localJobId);
-        console.log(`[agent#${workerId}] completed ${command.id} (${result.status})`);
-      } catch (error) {
-        const message = safeError(error); const retryable = !sideEffect && (!(error instanceof LocalApiError) || error.status >= 500 || error.status === 429); const status = sideEffect ? "requires_attention" : "failed";
-        await ops.fail(command.id, leaseToken, status, sideEffect ? "external_result_unknown" : "execution_failed", message, retryable, localJobId).catch((reportError) => console.error(`[agent#${workerId}] could not report failure for ${command.id}: ${safeError(reportError)}`)); console.error(`[agent#${workerId}] failed ${command.id}: ${message}`);
-      } finally { clearInterval(leaseTimer); }
-    } catch (error) {
-      console.error(`[agent#${workerId}] polling error: ${safeError(error)}`);
-      await delay(10_000);
-    } finally {
+    void runCommand(slot, claim).finally(() => {
       activeCount--;
-    }
+      freeSlots.push(slot);
+      const wake = slotFreed; slotFreed = null; wake?.();
+    });
+  }
+}
+
+async function runCommand(workerId: number, claim: NonNullable<Awaited<ReturnType<typeof ops.claim>>>) {
+  try {
+    const { command, leaseToken } = claim; let stage = "starting"; let progress = 1; let localJobId: string | undefined; let sideEffect = false;
+    console.log(`[agent#${workerId}] claimed ${command.id} (${command.type})`); await ops.start(command.id, leaseToken);
+    // Chained timeouts instead of setInterval: a lease heartbeat that's slow
+    // (retries against a sluggish Hostinger) must not overlap the next one.
+    let leaseDone = false; let leaseTimer: NodeJS.Timeout | undefined;
+    const scheduleLeaseBeat = () => {
+      leaseTimer = setTimeout(() => {
+        void ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId)
+          .catch((error) => console.error(`[agent#${workerId}] lease heartbeat failed for ${command.id}: ${safeError(error)}`))
+          .finally(() => { if (!leaseDone) scheduleLeaseBeat(); });
+      }, 20_000);
+      leaseTimer.unref();
+    };
+    scheduleLeaseBeat();
+    try {
+      const result = await executeCommand(command, local, {
+        progress: async (nextStage, nextProgress, nextLocalJobId) => { stage = nextStage; progress = nextProgress; localJobId = nextLocalJobId ?? localJobId; await ops.commandHeartbeat(command.id, leaseToken, stage, progress, localJobId); },
+        sideEffect: async () => { if (!sideEffect) { await ops.sideEffect(command.id, leaseToken); sideEffect = true; } },
+        refreshSnapshots: (keys, onProgress) => syncSnapshots(local, ops, keys, onProgress, true),
+        getTemporaryMediaUpload: (id) => ops.temporaryMediaUpload(id),
+        completeTemporaryMediaUpload: (id, received, errorMessage) => ops.completeTemporaryMediaUpload(id, received, errorMessage),
+        // Reused as the end-to-end trace_id (see ExecutionContext.traceId
+        // in executors.ts) - command.id was already unique per job.
+        traceId: command.id,
+      });
+      const refreshKeys = snapshotKeysAfter(command.type);
+      if (refreshKeys.length) {
+        await syncSnapshots(local, ops, refreshKeys, async (key, current, total) => {
+          stage = `syncing:${key}`;
+          progress = Math.min(99, 92 + Math.round((current / total) * 7));
+          await ops.commandHeartbeat(command.id, leaseToken, stage, progress, result.localJobId ?? localJobId);
+        }, true);
+      }
+      await ops.complete(command.id, leaseToken, result.status, result.result, result.localJobId ?? localJobId);
+      console.log(`[agent#${workerId}] completed ${command.id} (${result.status})`);
+    } catch (error) {
+      const message = safeError(error); const retryable = !sideEffect && (!(error instanceof LocalApiError) || error.status >= 500 || error.status === 429); const status = sideEffect ? "requires_attention" : "failed";
+      await ops.fail(command.id, leaseToken, status, sideEffect ? "external_result_unknown" : "execution_failed", message, retryable, localJobId).catch((reportError) => console.error(`[agent#${workerId}] could not report failure for ${command.id}: ${safeError(reportError)}`)); console.error(`[agent#${workerId}] failed ${command.id}: ${message}`);
+    } finally { leaseDone = true; clearTimeout(leaseTimer); }
+  } catch (error) {
+    console.error(`[agent#${workerId}] command error: ${safeError(error)}`);
   }
 }
 
@@ -126,5 +149,5 @@ console.log(`[agent] HolaSalta Ops Agent 1.0.0 starting (concurrency=${agentConf
 await Promise.all([
   heartbeatLoop(),
   snapshotLoop(),
-  ...Array.from({ length: agentConfig.concurrency }, (_, index) => processLoop(index + 1)),
+  dispatchLoop(),
 ]);

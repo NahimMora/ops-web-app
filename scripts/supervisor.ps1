@@ -72,6 +72,22 @@ function Write-SafeLog([string]$Message) {
   Add-Content -LiteralPath $SupervisorLog -Value $line -Encoding UTF8
 }
 
+# Start-Process -RedirectStandardOutput/-Error truncates its target, so every
+# agent restart (reboot, deploy, crash) used to wipe the previous run's log -
+# and with it the evidence of Hostinger 504s/timeouts (HS-INCIDENT-0003).
+# Append the finished run to a .history file (rotated at 5MB) first.
+function Archive-AgentLog([string]$Path) {
+  if (-not (Test-Path -LiteralPath $Path) -or (Get-Item -LiteralPath $Path).Length -eq 0) { return }
+  $history = "$Path.history"
+  try {
+    Rotate-Log $history
+    Add-Content -LiteralPath $history -Value ("----- run archived {0} -----" -f (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")) -Encoding UTF8
+    Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | Add-Content -LiteralPath $history -Encoding UTF8
+  } catch {
+    Write-SafeLog ("No se pudo archivar {0}: {1}" -f $Path, $_.Exception.GetType().Name)
+  }
+}
+
 function Rotate-Log([string]$Path) {
   if ((Test-Path -LiteralPath $Path) -and (Get-Item -LiteralPath $Path).Length -gt 5MB) {
     $archive = "$Path.1"
@@ -208,8 +224,8 @@ while ($true) {
         $agentProcess = Get-Process -Id $adopted.ProcessId -ErrorAction SilentlyContinue
       } else {
         Write-SafeLog "Agente no disponible; iniciando."
-        Rotate-Log $AgentStdoutLog
-        Rotate-Log $AgentStderrLog
+        Archive-AgentLog $AgentStdoutLog
+        Archive-AgentLog $AgentStderrLog
         $agentProcess = Start-Process -FilePath "node.exe" -ArgumentList @($AgentEntry) -WorkingDirectory $OpsRoot -WindowStyle Hidden -PassThru -RedirectStandardOutput $AgentStdoutLog -RedirectStandardError $AgentStderrLog
       }
     }

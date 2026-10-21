@@ -51,6 +51,7 @@ export interface Repository {
   listCommandsByCreator(createdBy: string, limit: number, type?: string): Promise<CommandInternal[]>;
   deleteCommandsByStatus(statuses: CommandStatus[], createdBy?: string): Promise<number>;
   claimCommand(agentId: string, capabilities: string[], leaseTokenHash: string, leaseExpiresAt: string): Promise<CommandInternal | null>;
+  findClaimedByLease(agentId: string, leaseTokenHash: string): Promise<CommandInternal | null>;
   startCommand(id: string, leaseTokenHash: string, localJobId?: string): Promise<CommandInternal | null>;
   markSideEffect(id: string, leaseTokenHash: string): Promise<boolean>;
   heartbeatCommand(id: string, leaseTokenHash: string, leaseExpiresAt: string, patch: UpdateInput): Promise<CommandInternal | null>;
@@ -129,6 +130,7 @@ export class MemoryRepository implements Repository {
     const command = [...this.commands.values()].filter((c) => c.status === "queued" && capabilities.includes(c.requiredCapability) && (!c.resourceKey || !activeResources.has(c.resourceKey))).sort((a, b) => b.priority - a.priority || a.createdAt.localeCompare(b.createdAt))[0];
     if (!command) return null; Object.assign(command, { status: "claimed", assignedAgentId: agentId, leaseTokenHash: leaseHash, leaseExpiresAt, attemptCount: command.attemptCount + 1, currentStage: "claimed", updatedAt: nowIso() }); return clone(command);
   }
+  async findClaimedByLease(agentId: string, leaseHash: string) { const c = [...this.commands.values()].find((item) => item.status === "claimed" && item.assignedAgentId === agentId && item.leaseTokenHash === leaseHash && item.leaseExpiresAt && Date.parse(item.leaseExpiresAt) > Date.now()); return c ? clone(c) : null; }
   private owned(id: string, leaseHash: string): CommandInternal | null { const command = this.commands.get(id); return command && command.leaseTokenHash === leaseHash && command.leaseExpiresAt && Date.parse(command.leaseExpiresAt) > Date.now() ? command : null; }
   async startCommand(id: string, leaseHash: string, localJobId?: string) { const c = this.owned(id, leaseHash); if (!c || c.status !== "claimed") return null; Object.assign(c, { status: "running", currentStage: "running", localJobId: localJobId ?? c.localJobId, updatedAt: nowIso() }); return clone(c); }
   async markSideEffect(id: string, leaseHash: string) { const c = this.owned(id, leaseHash); if (!c || c.status !== "running") return false; c.sideEffectStarted = true; c.updatedAt = nowIso(); return true; }

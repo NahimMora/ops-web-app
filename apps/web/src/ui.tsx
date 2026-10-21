@@ -30,6 +30,7 @@ export const SOURCE_OPTIONS = [
   { key: "aries", label: "Aries" },
   { key: "justicia", label: "Justicia Salta" },
   { key: "fiscales", label: "Fiscales Penales" },
+  { key: "gendarmeria", label: "Gendarmería Nacional" },
   { key: "nuevodiario", label: "Nuevo Diario" },
   { key: "elonce", label: "Elonce" },
   { key: "eloncesalta", label: "Elonce Salta" },

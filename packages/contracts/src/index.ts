@@ -8,7 +8,7 @@ export const commandStatusSchema = z.enum(commandStatuses);
 export type CommandStatus = z.infer<typeof commandStatusSchema>;
 
 export const scraperSources = [
-  "minutouno", "tn", "na", "ambito", "aries", "justicia", "fiscales",
+  "minutouno", "tn", "na", "ambito", "aries", "justicia", "fiscales", "gendarmeria",
   "nuevodiario", "elonce", "eloncesalta", "eltribuno", "infobae", "quepasasalta",
 ] as const;
 export const scraperSourceSchema = z.enum(scraperSources);

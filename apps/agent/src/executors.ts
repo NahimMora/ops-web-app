@@ -20,7 +20,7 @@ export type ExecutionContext = {
   // handlers that couldn't see `command` directly before.
   traceId: string;
 };
-const scraperRoutes: Record<string, string> = { minutouno: "/api/scraper", tn: "/api/scraper-tn", na: "/api/scraper-na", ambito: "/api/scraper-ambito", aries: "/api/scraper-ariesonline", justicia: "/api/scraper-justiciasalta", fiscales: "/api/scraper-fiscales", nuevodiario: "/api/scraper-nuevodiario", elonce: "/api/scraper-elonce", eloncesalta: "/api/scraper-eloncesalta", eltribuno: "/api/scraper-eltribuno", infobae: "/api/scraper-infobae", quepasasalta: "/api/scraper-quepasasalta" };
+const scraperRoutes: Record<string, string> = { minutouno: "/api/scraper", tn: "/api/scraper-tn", na: "/api/scraper-na", ambito: "/api/scraper-ambito", aries: "/api/scraper-ariesonline", justicia: "/api/scraper-justiciasalta", fiscales: "/api/scraper-fiscales", gendarmeria: "/api/scraper-gendarmeria", nuevodiario: "/api/scraper-nuevodiario", elonce: "/api/scraper-elonce", eloncesalta: "/api/scraper-eloncesalta", eltribuno: "/api/scraper-eltribuno", infobae: "/api/scraper-infobae", quepasasalta: "/api/scraper-quepasasalta" };
 
 export async function executeCommand(command: CommandRecord, api: LocalApi, context: ExecutionContext): Promise<ExecutionResult> {
   const p = command.payload as Record<string, any>; await context.progress("dispatching", 2);

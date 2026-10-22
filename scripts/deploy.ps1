@@ -1,8 +1,9 @@
 # Run this after every round of fixes: pulls both repos (Ops + the backend),
 # rebuilds/reinstalls only what actually changed, and restarts only the
 # process(es) that need it - the supervisor task (already running) picks the
-# restarted process back up within its own poll interval, so this never
-# touches the Windows scheduled task itself.
+# restarted process back up within its own poll interval. The Windows
+# scheduled task itself is only restarted when supervisor.ps1 changed (it's a
+# long-running script: a pull alone never reaches the copy already running).
 #
 # Usage: from C:\HolaSalta\Ops -> .\scripts\deploy.ps1
 # (Run `Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force`
@@ -95,6 +96,18 @@ if ($backendChanged -match "backend/requirements\.txt") {
   }
 }
 
+# YouTube/X change their sites constantly and an old yt-dlp is the usual
+# cause of 403s and failed video downloads. It's a subprocess of the backend,
+# so updating needs no restart. Best effort: never fails the deploy.
+Section "Actualizando yt-dlp"
+try {
+  $ytdlp = (Get-Command yt-dlp -ErrorAction Stop).Source
+  & $ytdlp -U
+  if ($LASTEXITCODE -ne 0) { Write-Host "  yt-dlp -U fallo (en una instalacion de chocolatey: choco upgrade yt-dlp -y como admin)." -ForegroundColor Yellow }
+} catch {
+  Write-Host "  No se pudo actualizar yt-dlp: $($_.Exception.Message)" -ForegroundColor Yellow
+}
+
 # Tells the health monitor (apps/monitor) that the restarts below are on
 # purpose, so "backend/agente levantado" right after isn't mailed as a failure.
 if ($backendChanged -or $opsChanged) {
@@ -104,6 +117,13 @@ if ($backendChanged -or $opsChanged) {
   } catch {
     Write-Host "  (no se pudo anotar el reinicio en supervisor.log: $($_.Exception.Message))" -ForegroundColor DarkGray
   }
+}
+
+if ($opsChanged -match "scripts/supervisor\.ps1") {
+  Section "supervisor.ps1 cambio - reiniciando la tarea del supervisor"
+  # Backend/agent keep running across this: the new instance adopts them.
+  Stop-ScheduledTask -TaskName "HolaSalta Ops Local Agent" -ErrorAction SilentlyContinue
+  Start-ScheduledTask -TaskName "HolaSalta Ops Local Agent"
 }
 
 if ($backendChanged) {

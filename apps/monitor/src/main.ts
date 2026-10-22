@@ -9,7 +9,7 @@
 //   node dist/monitor/main.js --dry-run     print mails instead of sending
 import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { collectSnapshot, enrichJobsFromEvents, readEventsSince, readSupervisorLog, readTerminalJobs } from "./collect.js";
+import { collectSnapshot, enrichJobsFromEvents, enrichJobsFromItems, readEventsSince, readSupervisorLog, readTerminalJobs } from "./collect.js";
 import { mailConfigured, monitorConfig } from "./config.js";
 import { buildReport, emptyState, evaluate, formatLocal, type Mail, type MonitorState, reportDue, statusBlock } from "./evaluate.js";
 import { sendMail } from "./mailer.js";
@@ -64,6 +64,7 @@ async function main() {
   const newJobs = jobs.filter((j) => !state.jobs[j.id]);
   const allEvents = await readEventsSince(monitorConfig.backendDataDir, undefined);
   enrichJobsFromEvents(newJobs, allEvents);
+  await enrichJobsFromItems(newJobs, monitorConfig.backendDataDir);
   const lastEventTs = state.lastEventTs;
   const events = lastEventTs ? allEvents.filter((e) => e.ts > lastEventTs) : allEvents;
   const supervisorLog = await readSupervisorLog(join(monitorConfig.stateDir, "supervisor.log"), state.supervisorLogOffset);

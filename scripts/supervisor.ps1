@@ -152,11 +152,18 @@ while ($true) {
     } catch { $backendReady = $false }
 
     if (-not $backendReady) {
-      $backendProcesses = Get-BackendProcesses
+      $backendProcesses = @(Get-BackendProcesses)
       if ($backendProcesses.Count -eq 0) {
         Write-SafeLog "Backend local no disponible y sin proceso; iniciando."
         $backendUnhealthySince = $null
         $env:BACKEND_PORT = $BackendPort
+        # WhatsApp/X runtime comes up with the backend instead of waiting for
+        # someone to press "start" in Ops: every reboot/deploy/hang-restart
+        # used to leave it "stopped" and publishing silently halted. The
+        # backend loads .env with override=False, so this wins over the
+        # AUTOMATION_AUTOSTART=false still sitting in backend/.env. A manual
+        # stop from Ops still holds until the next backend restart.
+        $env:AUTOMATION_AUTOSTART = "true"
         Start-Process -FilePath "cmd.exe" -ArgumentList @("/c", $BackendLauncher) -WindowStyle Hidden | Out-Null
       } else {
         if ($null -eq $backendUnhealthySince) { $backendUnhealthySince = Get-Date }
@@ -217,7 +224,11 @@ while ($true) {
     }
 
     if ($null -eq $agentProcess -or $agentProcess.HasExited) {
-      $existingAgents = Get-AgentProcesses
+      # @() at the call site too: a function's return unrolls a one-element
+      # array into a bare CimInstance, whose .Count is $null - so exactly one
+      # surviving agent read as "none" and a duplicate got started (seen
+      # 2026-10-21 after a supervisor task restart).
+      $existingAgents = @(Get-AgentProcesses)
       if ($existingAgents.Count -gt 0) {
         $adopted = $existingAgents[0]
         Write-SafeLog ("Agente ya en ejecucion (PID {0}); no se inicia duplicado." -f $adopted.ProcessId)

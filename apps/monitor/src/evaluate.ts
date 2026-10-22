@@ -47,7 +47,7 @@ const RECURRING_WINDOW_MS = 24 * HOUR;
 const RECURRING_THRESHOLD = 3;
 const DISK_LOW_GB = 10;
 // Supervisor restarts are rarer and each one matters more than, say, the
-// 20th "X daily limit" failure of the day - so they're re-mailed sooner.
+// 20th failed video of the day - so they're re-mailed sooner.
 const suppressionMs = (signature: string) => (signature.startsWith("sup:") ? HOUR : 6 * HOUR);
 // How many consecutive monitor runs (5 min apart) a condition must persist
 // before it pages. The backend's /health routinely misses a 4s probe for a
@@ -105,8 +105,27 @@ function problemsFor(snap: Snapshot): Record<string, string> {
   return problems;
 }
 
+// X's daily post limit is expected and already planned around (the backend
+// stops posting to X for the day) - it's not something anyone needs to be
+// mailed about. errorCode can hold several codes ("a,b") when the platform's
+// items failed for different reasons; only an all-quota failure is ignored.
+const isQuotaOnly = (name: string, o: PlatformOutcome) => name === "x" && !!o.errorCode && o.errorCode.split(",").every((c) => c === "x_rate_limited");
+
+// The source post simply has no video (deleted, private, not a video): the
+// backend skips it and nothing on our side can change that.
+const EXPECTED_JOB_ERRORS = new Set(["source_no_video"]);
+const ERROR_HINTS: Record<string, string> = {
+  download_blocked: "el sitio bloquea la descarga (YouTube pide login): configurar X_VIDEO_COOKIES_PATH o X_VIDEO_COOKIES_FROM_BROWSER en backend/.env",
+};
+
 export function jobFailure(job: JobRecord): Failure | null {
-  const failedPlatforms = Object.entries(job.platforms).filter(([, o]) => o.failed > 0);
+  // A batch's status is just derived from its children, and each failed child
+  // already produces its own entry (with the actual reason).
+  if (job.type === "x_video_batch" && !job.errorCode) return null;
+  if (job.errorCode && EXPECTED_JOB_ERRORS.has(job.errorCode)) return null;
+  const allFailed = Object.entries(job.platforms).filter(([, o]) => o.failed > 0);
+  const failedPlatforms = allFailed.filter(([name, o]) => !isQuotaOnly(name, o));
+  if (allFailed.length > 0 && failedPlatforms.length === 0) return null;
   // The backend marks a news job "completed" when only X hit its daily quota
   // (other platforms published) - still a platform failure worth reporting.
   if (job.status === "cancelled" || (job.status !== "failed" && failedPlatforms.length === 0)) return null;
@@ -114,6 +133,7 @@ export function jobFailure(job: JobRecord): Failure | null {
   const signature = `job:${job.type}:${job.status === "failed" ? "failed" : "partial"}:${job.errorCode ?? ""}:${failedPlatforms.map(([n, o]) => `${n}=${o.errorCode ?? ""}`).sort().join(",")}`;
   const parts = [`${jobLabel(job.type)} ${job.status === "failed" ? "fallo" : "con fallas parciales"}`];
   if (platforms.length) parts.push(`plataformas: ${platforms.join(", ")}`);
+  if (job.errorCode && ERROR_HINTS[job.errorCode]) parts.push(ERROR_HINTS[job.errorCode]!);
   if (job.errorMessage) parts.push(job.errorMessage);
   if (job.title) parts.push(`"${job.title}"`);
   return { ts: job.finishedAt, signature, text: parts.join(" - "), category: job.type.startsWith("x_video") ? "video" : "job" };

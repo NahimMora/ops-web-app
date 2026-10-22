@@ -126,6 +126,30 @@ export function enrichJobsFromEvents(jobs: JobRecord[], events: BackendEvent[]):
   }
 }
 
+// News jobs: the common-queue record only counts X failures, and the worker
+// event that names the reason rotates out of automation_events.json quickly
+// (two partial jobs on 2026-10-21 reached the monitor as a bare "X failed").
+// The publish job in automation_jobs.json keeps every item's own result, so
+// the codes come from there: all distinct ones, joined with ",".
+export async function enrichJobsFromItems(jobs: JobRecord[], dataDir: string): Promise<void> {
+  const pending = new Map(jobs.filter((j) => Object.values(j.platforms).some((o) => o.failed > 0 && !o.errorCode)).map((j) => [j.id, j]));
+  if (!pending.size) return;
+  for (const raw of listOf(await readJsonFile(join(dataDir, "automation_jobs.json")), "jobs")) {
+    const job = pending.get(str(asRecord(raw).job_id) ?? "");
+    if (!job) continue;
+    const codes: Record<string, Set<string>> = {};
+    for (const item of Array.isArray(asRecord(raw).items) ? asRecord(raw).items : []) {
+      for (const [name, result] of Object.entries(asRecord(asRecord(item).platform_results))) {
+        const r = asRecord(result); const code = str(r.error_code);
+        if (r.status === "failed" && code) (codes[name] ??= new Set()).add(code);
+      }
+    }
+    for (const [name, outcome] of Object.entries(job.platforms)) {
+      if (outcome.failed > 0 && !outcome.errorCode && codes[name]?.size) outcome.errorCode = [...codes[name]!].sort().join(",");
+    }
+  }
+}
+
 const SUPERVISOR_PATTERNS: [RegExp, SupervisorKind][] = [
   [/^Supervisor iniciado/, "supervisor_started"],
   [/^Reinicio planificado/, "planned_restart"],

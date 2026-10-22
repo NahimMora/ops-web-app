@@ -63,7 +63,11 @@ aparece en ningún path de URL que el access log de Fastify ya capture.
   Agent"** (trigger AtLogOn). Chequea `/health` del backend cada 10s
   (si no responde y no hay proceso, lo arranca vía `start_backend.bat`;
   si el proceso existe pero no responde por 180s+, lo mata y lo relanza),
-  y mantiene vivo el agente (`dist/agent/main.js`). No instalar un segundo
+  y mantiene vivo el agente (`dist/agent/main.js`). Lanza el backend con
+  `AUTOMATION_AUTOSTART=true` en el entorno del proceso (gana sobre el
+  `false` de `backend/.env`, que se carga con `override=False`), así el
+  runtime de WhatsApp/X arranca solo con cada reinicio/deploy en vez de
+  quedar "stopped" hasta que alguien lo inicie desde Ops. No instalar un segundo
   supervisor de otro lado — si esta tarea ya corre en la máquina, es la
   única fuente de verdad de "quién levanta qué".
 - `monitor.ps1` / `install-monitor-task.ps1`: monitor de salud, tarea de
@@ -74,7 +78,8 @@ aparece en ningún path de URL que el access log de Fastify ya capture.
   eventos nuevos del backend (`backend/data/automation_*.json`) y las líneas
   nuevas de `supervisor.log`, y manda por Gmail: alerta cuando algo se cae
   (tras 2 chequeos seguidos) o falla, "VIENE FALLANDO" si el mismo error se
-  repite 3+ veces en 24h (cada error se re-mailea como mucho cada 6h), y un
+  repite 3+ veces en 24h (cada error se re-mailea como mucho cada 6h; el
+  cupo diario de X, `x_rate_limited`, nunca se mailea), y un
   reporte de salud completo cada 72h. Credenciales en `.secrets/agent.env`
   (`OPS_ALERT_SMTP_USER`/`OPS_ALERT_SMTP_PASSWORD`/`OPS_ALERT_EMAIL_TO`,
   contraseña de aplicación de Gmail). Estado en
@@ -116,6 +121,22 @@ no alcanza con Node 18, que es lo que pide el backend para SU parte
   la máquina en sesiones abiertas por SSH — rompe
   `Register-ScheduledTask` con "No se efectuó ninguna asignación entre
   los nombres de cuenta...". Se corrigió a `$env:COMPUTERNAME`.
+- **`supervisor.ps1`, `Get-AgentProcesses`**: `return @(...)` desde una
+  función desenrolla un array de UN elemento a un `CimInstance` suelto, cuyo
+  `.Count` es `$null` — con exactamente un agente vivo, reiniciar la tarea
+  del supervisor lanzaba un segundo agente (dos agentes = comandos de la
+  cola ejecutados dos veces). Siempre envolver la llamada: `@(Get-...)`.
+- **`deploy.ps1`** no reiniciaba nunca la tarea del supervisor, así que un
+  cambio en `supervisor.ps1` no aplicaba hasta reiniciar la PC. Ahora la
+  reinicia solo si ese archivo cambió en el pull.
+- **Monitor y cupo diario de X**: `x_rate_limited` es esperado (X corta los
+  posts del día y el backend descarta el resto, ver su CLAUDE.md "X: cupo
+  diario...") y no se mailea ni cuenta como falla; los lotes
+  `x_video_batch` tampoco (su estado sale de los hijos, que ya alertan con
+  el motivo real), ni los videos `source_no_video` (el post no tiene video).
+  `download_blocked` sí alerta, con la indicación de configurar cookies.
+- **`deploy.ps1`** corre `yt-dlp -U` en cada deploy (sin cortar el deploy
+  si falla): un yt-dlp viejo es la causa típica de 403 al descargar.
 
 ## Segundo Cerebro (gestión de conocimiento personal)
 

@@ -126,6 +126,26 @@ if ($opsChanged -match "scripts/supervisor\.ps1") {
   Start-ScheduledTask -TaskName "HolaSalta Ops Local Agent"
 }
 
+# The Baileys service (WhatsApp) runs from its own compiled dist/ under PM2,
+# not from the backend's uvicorn process: without this a change to its
+# source never reached production.
+if ($backendChanged -match "backend/whatsapp/baileys-service/") {
+  Section "Reconstruyendo y reiniciando servicio Baileys (WhatsApp)"
+  Push-Location (Join-Path (Split-Path -Parent $BackendEnvPath) "whatsapp\baileys-service")
+  try {
+    if ($backendChanged -match "backend/whatsapp/baileys-service/package(-lock)?\.json") {
+      npm.cmd ci
+      if ($LASTEXITCODE -ne 0) { throw "npm ci fallo en baileys-service." }
+    }
+    npm.cmd run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build fallo en baileys-service." }
+    pm2.cmd restart baileys-service --update-env
+    if ($LASTEXITCODE -ne 0) { throw "pm2 restart baileys-service fallo." }
+  } finally {
+    Pop-Location
+  }
+}
+
 if ($backendChanged) {
   Section "Reiniciando backend"
   Stop-MatchingProcess -CommandLinePattern "*uvicorn main:app*" -Label "backend"

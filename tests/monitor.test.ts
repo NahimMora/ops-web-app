@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { enrichJobsFromItems, parseSupervisorLine, toJobRecord } from "../apps/monitor/src/collect.js";
-import { buildReport, emptyState, evaluate, type JobRecord, type MonitorState, normalizeMessage, type Snapshot } from "../apps/monitor/src/evaluate.js";
+import { buildReport, emptyState, evaluate, type JobRecord, jobStateKey, type MonitorState, normalizeMessage, type Snapshot } from "../apps/monitor/src/evaluate.js";
 
 const healthy = (overrides: Partial<Snapshot> = {}): Snapshot => ({
   at: "2026-10-20T12:00:00.000Z",
@@ -110,6 +110,25 @@ describe("health monitor rules", () => {
     expect(pass(next.state, healthy(), 60, { newEvents: [unreachable("2026-10-20T13:00:00Z")] }).alert?.text).toContain("baileys service unreachable");
     // A backend that died on its own (no reboot) still pages.
     expect(pass(emptyState(), healthy(), 0, { newSupervisorLines: [sup("2026-10-20T11:59:15Z", "backend_started")] }).alert?.text).toContain("estaba caido");
+  });
+
+  it("sees a video publish that reuses the id of the job that rendered it", () => {
+    // The panel's "Publicar" requeues the render job under the same id; the
+    // publish outcome used to be dropped as "already seen".
+    const rendered: JobRecord = { id: "v1", type: "x_video_process", status: "completed", createdAt: "2026-10-20T11:50:00Z", finishedAt: "2026-10-20T11:55:00Z", platforms: {} };
+    const published: JobRecord = {
+      ...rendered, type: "x_video_publish", status: "partial_success", finishedAt: "2026-10-20T12:00:00Z", title: "Video",
+      platforms: { instagram: { success: 0, partial: 0, failed: 1, errorCode: "message_send_failed", errorMessage: "IG rechazo el video" }, x: { success: 1, partial: 0, failed: 0 } },
+    };
+    const first = pass(emptyState(), healthy(), 0, { newJobs: [rendered] });
+    expect(first.alert).toBeNull();
+    expect(jobStateKey(first.state.jobs, rendered)).toBeNull();
+    expect(jobStateKey(first.state.jobs, published)).toBe("v1@2026-10-20T12:00:00Z");
+    const second = pass(first.state, healthy(), 5, { newJobs: [published] });
+    expect(second.alert?.text).toContain("Instagram: 1 de 1 fallaron (message_send_failed - IG rechazo el video)");
+    expect(Object.keys(second.state.jobs).sort()).toEqual(["v1", "v1@2026-10-20T12:00:00Z"]);
+    // Seen once, never again.
+    expect(jobStateKey(second.state.jobs, published)).toBeNull();
   });
 
   it("records history on the baseline pass without mailing it", () => {

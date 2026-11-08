@@ -145,6 +145,12 @@ no alcanza con Node 18, que es lo que pide el backend para SU parte
   salteadas por `web_url_required`, y el error general del trabajo.
   `enrichJobsFromItems` (`collect.ts`) copia ese detalle de
   `automation_jobs.json` en el momento: el backend solo guarda ~20 trabajos.
+- **Publicaciones de video invisibles para el monitor**: "Publicar" en la
+  sección Videos re-encola el trabajo que bajó/renderizó el video **con el
+  mismo id**, y el monitor descartaba todo id ya visto — nunca vio un
+  resultado de publicación de video (ni éxito ni falla). `jobStateKey`
+  (`evaluate.ts`) trata un id que vuelve a terminar como resultado nuevo
+  (`<id>@<finishedAt>`).
 
 ## Segundo Cerebro (gestión de conocimiento personal)
 

@@ -81,6 +81,21 @@ export const jobLabel = (type: string) => JOB_LABEL[type] ?? type;
 const TERMINAL = new Set(["completed", "failed", "partial_success", "cancelled"]);
 export const isTerminal = (status: string) => TERMINAL.has(status);
 
+// Where a terminal job goes in state.jobs, or null if it's already there.
+// Publishing a video from the panel requeues the job that downloaded and
+// rendered it under the SAME id (routes/x_video.py, requeue_existing), so
+// "already seen this id" used to swallow every video publish result: the
+// monitor kept the "render completed" record and never saw the publish
+// succeed or fail (found 2026-11-07). A job that finishes again (new
+// finishedAt/status/type) is a new outcome, stored as "<id>@<finishedAt>".
+export function jobStateKey(jobs: Record<string, JobRecord>, job: JobRecord): string | null {
+  const first = jobs[job.id];
+  if (!first) return job.id;
+  if (first.finishedAt === job.finishedAt && first.status === job.status && first.type === job.type) return null;
+  const key = `${job.id}@${job.finishedAt}`;
+  return jobs[key] ? null : key;
+}
+
 // Collapses ids, counts and timestamps so "the same error" on different jobs
 // shares one signature (and one mail per suppression window).
 export function normalizeMessage(text: string): string {
@@ -236,12 +251,17 @@ export function evaluate(input: EvaluateInput): { state: MonitorState; alert: Ma
   });
 
   // --- failures -----------------------------------------------------------
-  const knownJobIds = new Set([...Object.keys(state.jobs), ...input.newJobs.map((j) => j.id)]);
+  const knownJobIds = new Set([...Object.values(state.jobs).map((j) => j.id), ...input.newJobs.map((j) => j.id)]);
   // Supervisor history goes in first: a reboot's "Supervisor iniciado" and the
   // events it causes can land in the same run or in consecutive ones.
   for (const line of input.newSupervisorLines) state.supervisor.push({ ts: line.ts, kind: line.kind });
   const candidates: Failure[] = [];
-  for (const job of input.newJobs) { state.jobs[job.id] = job; const f = jobFailure(job); if (f) candidates.push(f); }
+  for (const job of input.newJobs) {
+    const key = jobStateKey(state.jobs, job);
+    if (!key) continue;
+    state.jobs[key] = job;
+    const f = jobFailure(job); if (f) candidates.push(f);
+  }
   for (const event of input.newEvents) {
     // A failed job already produces its own (richer) failure entry above.
     if (event.jobId && knownJobIds.has(event.jobId) && event.level === "error" && event.message.startsWith("job failed")) continue;

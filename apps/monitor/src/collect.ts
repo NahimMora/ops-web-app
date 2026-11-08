@@ -95,7 +95,9 @@ export function toJobRecord(raw: any): JobRecord | null {
   return {
     id, type, status,
     createdAt: str(job.created_at) ?? new Date().toISOString(),
-    finishedAt: str(job.completed_at) ?? str(job.updated_at) ?? new Date().toISOString(),
+    // Never "now": jobStateKey treats a changed finishedAt as a new outcome,
+    // so a moving fallback would re-report the same job every pass.
+    finishedAt: str(job.completed_at) ?? str(job.updated_at) ?? str(job.created_at) ?? "1970-01-01T00:00:00.000Z",
     errorCode: str(job.error_code), errorMessage: str(job.error_message), title: str(summary.title), platforms,
     fatalError: str(global.fatal_error),
   };

@@ -11,7 +11,7 @@ import { appendFile, mkdir, readFile, rename, stat, writeFile } from "node:fs/pr
 import { join } from "node:path";
 import { collectSnapshot, enrichJobsFromEvents, enrichJobsFromItems, readEventsSince, readSupervisorLog, readTerminalJobs } from "./collect.js";
 import { mailConfigured, monitorConfig } from "./config.js";
-import { buildReport, emptyState, evaluate, formatLocal, type Mail, type MonitorState, reportDue, statusBlock } from "./evaluate.js";
+import { buildReport, emptyState, evaluate, formatLocal, jobStateKey, type Mail, type MonitorState, reportDue, statusBlock } from "./evaluate.js";
 import { sendMail } from "./mailer.js";
 
 const args = new Set(process.argv.slice(2));
@@ -61,7 +61,7 @@ async function main() {
   const now = new Date();
 
   const jobs = await readTerminalJobs(monitorConfig.backendDataDir);
-  const newJobs = jobs.filter((j) => !state.jobs[j.id]);
+  const newJobs = jobs.filter((j) => jobStateKey(state.jobs, j) !== null);
   const allEvents = await readEventsSince(monitorConfig.backendDataDir, undefined);
   enrichJobsFromEvents(newJobs, allEvents);
   await enrichJobsFromItems(newJobs, monitorConfig.backendDataDir);

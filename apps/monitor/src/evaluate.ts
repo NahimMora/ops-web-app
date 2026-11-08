@@ -15,14 +15,17 @@ export interface Snapshot {
   diskFreeGb: number | null;
 }
 export interface BackendEvent { id: string; ts: string; source: string; level: string; message: string; jobId?: string; errorCode?: string; detail?: string }
-export interface PlatformOutcome { success: number; partial: number; failed: number; errorCode?: string }
+export interface PlatformOutcome { success: number; partial: number; failed: number; errorCode?: string; errorMessage?: string }
 export interface JobRecord {
   id: string; type: string; status: string; createdAt: string; finishedAt: string;
   errorCode?: string; errorMessage?: string; title?: string; platforms: Record<string, PlatformOutcome>;
+  fatalError?: string;
 }
 export type SupervisorKind = "supervisor_started" | "planned_restart" | "backend_started" | "backend_hung_restart" | "backend_unresponsive" | "agent_started" | "baileys_recovery" | "supervisor_error" | "other";
 export interface SupervisorLine { ts: string; kind: SupervisorKind; text: string }
-export interface Failure { ts: string; signature: string; text: string; category: string }
+// `text` is the one-line form (report, recurrence); a job failure's mail
+// shows `headline` plus one indented line per entry in `details` instead.
+export interface Failure { ts: string; signature: string; text: string; category: string; headline?: string; details?: string[] }
 
 export interface MonitorState {
   version: 1;
@@ -118,6 +121,20 @@ const ERROR_HINTS: Record<string, string> = {
   download_blocked: "el sitio bloquea la descarga (YouTube pide login): configurar X_VIDEO_COOKIES_PATH o X_VIDEO_COOKIES_FROM_BROWSER en backend/.env",
 };
 
+// "Skipped because Web/WordPress gave the post no URL" - a consequence of the
+// web failure, not a failure of that platform; shown as such.
+const DEPENDENCY_CODE = "web_url_required";
+const isDependencyOnly = (o: PlatformOutcome) => !!o.errorCode && o.errorCode.split(",").every((c) => c === DEPENDENCY_CODE);
+const totalOf = (o: PlatformOutcome) => o.success + o.partial + o.failed;
+const shorten = (text: string, max = 300) => (text.length > max ? `${text.slice(0, max - 3)}...` : text);
+// Plain-language reading of the raw errors that show up most.
+function explain(name: string, o: PlatformOutcome): string | undefined {
+  const message = o.errorMessage ?? "";
+  if (name === "web" && /timed out|timeout/i.test(message)) return "WordPress no respondio a tiempo";
+  if (/did not execute/i.test(message)) return "la plataforma no llego a ejecutarse (el trabajo se corto antes; ver error general)";
+  return undefined;
+}
+
 export function jobFailure(job: JobRecord): Failure | null {
   // A batch's status is just derived from its children, and each failed child
   // already produces its own entry (with the actual reason).
@@ -129,14 +146,39 @@ export function jobFailure(job: JobRecord): Failure | null {
   // The backend marks a news job "completed" when only X hit its daily quota
   // (other platforms published) - still a platform failure worth reporting.
   if (job.status === "cancelled" || (job.status !== "failed" && failedPlatforms.length === 0)) return null;
-  const platforms = failedPlatforms.map(([name, o]) => `${platformLabel(name)}${o.errorCode ? ` (${o.errorCode})` : ""}`);
   const signature = `job:${job.type}:${job.status === "failed" ? "failed" : "partial"}:${job.errorCode ?? ""}:${failedPlatforms.map(([n, o]) => `${n}=${o.errorCode ?? ""}`).sort().join(",")}`;
-  const parts = [`${jobLabel(job.type)} ${job.status === "failed" ? "fallo" : "con fallas parciales"}`];
-  if (platforms.length) parts.push(`plataformas: ${platforms.join(", ")}`);
-  if (job.errorCode && ERROR_HINTS[job.errorCode]) parts.push(ERROR_HINTS[job.errorCode]!);
-  if (job.errorMessage) parts.push(job.errorMessage);
-  if (job.title) parts.push(`"${job.title}"`);
-  return { ts: job.finishedAt, signature, text: parts.join(" - "), category: job.type.startsWith("x_video") ? "video" : "job" };
+
+  // Older backends put the bare job id in error_message (2026-11-06,
+  // FileNotFoundError(job_id)) - that says nothing, so it's not shown.
+  const message = job.errorMessage && job.errorMessage !== job.id ? job.errorMessage : undefined;
+  const headlineParts = [`${jobLabel(job.type)} ${job.status === "failed" ? "fallo" : "con fallas parciales"}${job.errorCode && !failedPlatforms.length ? ` (${job.errorCode})` : ""}`];
+  if (job.errorCode && ERROR_HINTS[job.errorCode]) headlineParts.push(ERROR_HINTS[job.errorCode]!);
+  if (message) headlineParts.push(shorten(message));
+  if (job.title) headlineParts.push(`"${job.title}"`);
+
+  const details: string[] = [];
+  const broken = failedPlatforms.filter(([, o]) => !isDependencyOnly(o));
+  for (const [name, o] of broken) {
+    const why = [o.errorCode, explain(name, o), o.errorMessage ? shorten(o.errorMessage) : undefined].filter(Boolean).join(" - ");
+    details.push(`${platformLabel(name)}: ${o.failed} de ${totalOf(o)} fallaron${why ? ` (${why})` : ""}`);
+  }
+  const skippedByCount = new Map<string, string[]>();
+  for (const [name, o] of failedPlatforms.filter(([, o]) => isDependencyOnly(o))) {
+    const key = `${o.failed} de ${totalOf(o)}`;
+    skippedByCount.set(key, [...(skippedByCount.get(key) ?? []), platformLabel(name)]);
+  }
+  for (const [count, names] of skippedByCount) {
+    details.push(`${names.join(", ")}: ${count} no se publicaron porque la Web no devolvio el link de la nota (web_url_required) - es consecuencia de la falla de la Web, no de ${names.length > 1 ? "esas plataformas" : "esa plataforma"}`);
+  }
+  if (job.fatalError) details.push(`Error general del trabajo: ${shorten(job.fatalError)}`);
+
+  const compact = failedPlatforms.map(([name, o]) => `${platformLabel(name)} ${o.failed}/${totalOf(o)}${o.errorCode ? ` (${o.errorCode})` : ""}`);
+  const textParts = [...headlineParts];
+  if (compact.length) textParts.splice(1, 0, `plataformas: ${compact.join(", ")}`);
+  return {
+    ts: job.finishedAt, signature, text: textParts.join(" - "), category: job.type.startsWith("x_video") ? "video" : "job",
+    headline: headlineParts.join(" - "), details,
+  };
 }
 
 const ALERT_WARNING = /watchdog|needs_intervention|interrupted|stale jobs/i;
@@ -220,7 +262,9 @@ export function evaluate(input: EvaluateInput): { state: MonitorState; alert: Ma
       state.lastAlertBySignature[signature] = nowIso;
       const latest = group[group.length - 1]!;
       const tag = recent >= RECURRING_THRESHOLD ? `[VIENE FALLANDO: ${recent} veces en 24h] ` : group.length > 1 ? `[x${group.length}] ` : "";
-      failureLines.push(`${tag}${latest.text} (${formatLocal(latest.ts)})`);
+      const details = latest.details ?? [];
+      const head = details.length ? latest.headline ?? latest.text : latest.text;
+      failureLines.push(`${tag}${head} (${formatLocal(latest.ts)})${details.map((d) => `\n      ${d}`).join("")}`);
     }
   }
 

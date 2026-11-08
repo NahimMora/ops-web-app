@@ -81,12 +81,13 @@ export function toJobRecord(raw: any): JobRecord | null {
     if (name === "global") continue;
     const v = asRecord(value);
     if ("items_success" in v || "items_failed" in v) {
-      platforms[name] = { success: num(v.items_success), partial: num(v.items_partial_success), failed: num(v.items_failed), errorCode: str(v.error_code) };
+      platforms[name] = { success: num(v.items_success), partial: num(v.items_partial_success), failed: num(v.items_failed), errorCode: str(v.error_code), errorMessage: str(v.error_message) };
     } else if (str(v.status)) {
       const s = String(v.status);
-      platforms[name] = { success: ["success", "completed", "posted"].includes(s) ? 1 : 0, partial: s === "partial_success" ? 1 : 0, failed: s === "failed" ? 1 : 0, errorCode: str(v.error_code) };
+      platforms[name] = { success: ["success", "completed", "posted"].includes(s) ? 1 : 0, partial: s === "partial_success" ? 1 : 0, failed: s === "failed" ? 1 : 0, errorCode: str(v.error_code), errorMessage: str(v.error_message) };
     }
   }
+  const global = asRecord(asRecord(job.platform_results).global);
   const summary = asRecord(job.payload_summary);
   // The backend runs both "download + render" and "publish" for a video as
   // job type x_video_publish; only the latter carries a real publish_status.
@@ -96,6 +97,7 @@ export function toJobRecord(raw: any): JobRecord | null {
     createdAt: str(job.created_at) ?? new Date().toISOString(),
     finishedAt: str(job.completed_at) ?? str(job.updated_at) ?? new Date().toISOString(),
     errorCode: str(job.error_code), errorMessage: str(job.error_message), title: str(summary.title), platforms,
+    fatalError: str(global.fatal_error),
   };
 }
 
@@ -130,22 +132,42 @@ export function enrichJobsFromEvents(jobs: JobRecord[], events: BackendEvent[]):
 // event that names the reason rotates out of automation_events.json quickly
 // (two partial jobs on 2026-10-21 reached the monitor as a bare "X failed").
 // The publish job in automation_jobs.json keeps every item's own result, so
-// the codes come from there: all distinct ones, joined with ",".
+// the codes come from there: all distinct ones, joined with ",". So does the
+// actual error text (a WordPress timeout, "Platform x did not execute") and
+// the job's fatal error - captured now, because the backend only keeps the
+// last ~20 jobs: by the time anyone reads the mail, the detail is gone
+// (2026-11-04/05: X+WhatsApp "runtime_not_ready" with no way to tell why).
+const DEPENDENCY_CODE = "web_url_required";
 export async function enrichJobsFromItems(jobs: JobRecord[], dataDir: string): Promise<void> {
-  const pending = new Map(jobs.filter((j) => Object.values(j.platforms).some((o) => o.failed > 0 && !o.errorCode)).map((j) => [j.id, j]));
+  const needsDetail = (j: JobRecord) => j.status === "failed" || j.status === "partial_success" || Object.values(j.platforms).some((o) => o.failed > 0 && (!o.errorCode || !o.errorMessage));
+  const pending = new Map(jobs.filter(needsDetail).map((j) => [j.id, j]));
   if (!pending.size) return;
   for (const raw of listOf(await readJsonFile(join(dataDir, "automation_jobs.json")), "jobs")) {
-    const job = pending.get(str(asRecord(raw).job_id) ?? "");
+    const record = asRecord(raw);
+    const job = pending.get(str(record.job_id) ?? "");
     if (!job) continue;
-    const codes: Record<string, Set<string>> = {};
-    for (const item of Array.isArray(asRecord(raw).items) ? asRecord(raw).items : []) {
+    job.fatalError ??= str(asRecord(asRecord(record.summary).global).fatal_error) ?? str(record.error);
+    // First message seen per platform and code, so a real failure's text wins
+    // over the "skipped because Web had no URL" one when a platform has both.
+    const messages: Record<string, Map<string, string>> = {};
+    for (const item of Array.isArray(record.items) ? record.items : []) {
       for (const [name, result] of Object.entries(asRecord(asRecord(item).platform_results))) {
-        const r = asRecord(result); const code = str(r.error_code);
-        if (r.status === "failed" && code) (codes[name] ??= new Set()).add(code);
+        const r = asRecord(result);
+        if (r.status !== "failed") continue;
+        const byCode = (messages[name] ??= new Map());
+        const code = str(r.error_code) ?? "";
+        if (!byCode.has(code) || !byCode.get(code)) byCode.set(code, str(r.error_message) ?? "");
       }
     }
     for (const [name, outcome] of Object.entries(job.platforms)) {
-      if (outcome.failed > 0 && !outcome.errorCode && codes[name]?.size) outcome.errorCode = [...codes[name]!].sort().join(",");
+      const byCode = messages[name];
+      if (outcome.failed <= 0 || !byCode?.size) continue;
+      const codes = [...byCode.keys()].filter(Boolean).sort();
+      if (!outcome.errorCode && codes.length) outcome.errorCode = codes.join(",");
+      if (!outcome.errorMessage) {
+        const preferred = [...byCode.entries()].find(([code, message]) => code !== DEPENDENCY_CODE && message) ?? [...byCode.entries()].find(([, message]) => message);
+        if (preferred) outcome.errorMessage = preferred[1];
+      }
     }
   }
 }

@@ -137,6 +137,14 @@ no alcanza con Node 18, que es lo que pide el backend para SU parte
   `download_blocked` sí alerta, con la indicación de configurar cookies.
 - **`deploy.ps1`** corre `yt-dlp -U` en cada deploy (sin cortar el deploy
   si falla): un yt-dlp viejo es la causa típica de 403 al descargar.
+- **Mails de fallas sin detalle**: listaban cada plataforma como fallida
+  sin cantidades ni motivo (07/11: "Web, Instagram, Facebook, X, WhatsApp"
+  cuando falló 1 de 21 notas en WordPress y el resto se salteó por eso), y
+  a veces con el id del trabajo como único mensaje. Ahora el mail dice
+  "N de M fallaron", el error real de cada plataforma, marca aparte las
+  salteadas por `web_url_required`, y el error general del trabajo.
+  `enrichJobsFromItems` (`collect.ts`) copia ese detalle de
+  `automation_jobs.json` en el momento: el backend solo guarda ~20 trabajos.
 
 ## Segundo Cerebro (gestión de conocimiento personal)
 
